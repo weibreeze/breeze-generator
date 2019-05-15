@@ -1,0 +1,30 @@
+option java_package = com.weibo.breeze.demo;
+//option with_package_dir = true;
+package motan;
+
+message TestMsg{
+// message TestMsg(alias=testAlias){ // set message option alias
+	int32 myInt = 1;
+	string myString = 2;
+	map<string, TestSubMsg> myMap = 3;
+	array<TestSubMsg> myArray = 4;
+}
+
+message TestSubMsg{
+	string myString = 1;
+	int myInt = 2;
+	int64 myInt64 = 3;
+	float32 myFloat32 = 4;
+	float64 myFloat64 = 5;
+	byte myByte = 6;
+	bytes myBytes = 7;
+	map<string, bytes> myMap1 = 8;
+	map<int32, array<int32>> myMap2 = 9;
+	array<int32> myArray = 10;
+	bool myBool = 11;
+}
+
+service DemoService{
+	hello(TestMsg hello, map<int, map<string, array<string>>> param2, string param3)bool;
+	getByName(string param1)TestMsg;
+}

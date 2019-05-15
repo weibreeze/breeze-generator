@@ -1,0 +1,21 @@
+language: go
+
+sudo: false
+
+go:
+    - 1.10.x
+    - 1.11.x
+    - 1.12.x
+
+before_install:
+    - go get github.com/mattn/goveralls
+    - go get golang.org/x/tools/cmd/cover
+    
+install:
+    - go get -d -v -t $(go list ./... | grep -v main)
+
+script:
+    - go test -v -race -coverprofile=coverage.txt -covermode=atomic $(go list ./... | grep -v main)
+
+after_success:
+    - bash <(curl -s https://codecov.io/bash)
