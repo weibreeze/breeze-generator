@@ -1,7 +1,6 @@
 package parsers
 
 import (
-	"breeze-generator/core"
 	"bytes"
 	"errors"
 	"io"
@@ -9,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/weibreeze/breeze-generator/core"
 )
 
 //keywords

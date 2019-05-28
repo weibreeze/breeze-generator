@@ -1,13 +1,14 @@
 package templates
 
 import (
-	"breeze-generator/core"
 	"bytes"
 	"errors"
 	"os"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/weibreeze/breeze-generator/core"
 )
 
 //CodeTemplate names
@@ -16,6 +17,7 @@ const (
 	Php  = "php"
 	Java = "java"
 	Go   = "go"
+	Cpp  = "cpp"
 )
 
 var (
@@ -23,6 +25,7 @@ var (
 		Php:  &PHPTemplate{},
 		Java: &JavaTemplate{},
 		Go:   &GoTemplate{},
+		Cpp:  &CppTemplate{},
 	}
 )
 

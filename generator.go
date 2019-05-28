@@ -1,15 +1,16 @@
 package generator
 
 import (
-	"breeze-generator/core"
-	"breeze-generator/parsers"
-	"breeze-generator/templates"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"strings"
 	"syscall"
+
+	"github.com/weibreeze/breeze-generator/core"
+	"github.com/weibreeze/breeze-generator/parsers"
+	"github.com/weibreeze/breeze-generator/templates"
 )
 
 //Config is a generate config struct
