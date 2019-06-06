@@ -1,11 +1,12 @@
 package templates
 
 import (
-	"breeze-generator/core"
 	"bytes"
 	"errors"
 	"strconv"
 	"strings"
+
+	"github.com/weibreeze/breeze-generator/core"
 )
 
 var (

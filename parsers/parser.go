@@ -1,8 +1,9 @@
 package parsers
 
 import (
-	"breeze-generator/core"
 	"strings"
+
+	"github.com/weibreeze/breeze-generator/core"
 )
 
 //parser names

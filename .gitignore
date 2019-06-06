@@ -23,5 +23,6 @@ zj*
 __*
 *.test
 
+go.sum
 autoGenerate
-autoGenerate/*
+coverage.txt
