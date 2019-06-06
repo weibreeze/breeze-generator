@@ -16,12 +16,16 @@ const (
 )
 
 var (
+	UniformPackage = ""
+)
+
+var (
 	instances = map[string]core.Parser{
 		Breeze: &BreezeParser{},
 	}
 )
 
-//GetParser get Parser by name
+//GetParser get Parser by _name
 func GetParser(name string) core.Parser {
 	return instances[strings.ToLower(strings.TrimSpace(name))]
 }

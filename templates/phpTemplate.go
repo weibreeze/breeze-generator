@@ -44,7 +44,13 @@ func (pt *PHPTemplate) GenerateCode(schema *core.Schema, context *core.Context) 
 	contents = make(map[string][]byte)
 	if len(schema.Messages) > 0 {
 		for _, message := range schema.Messages {
-			file, content, err := pt.generateMessage(schema, message, context)
+			var file string
+			var content []byte
+			if message.IsEnum {
+				file, content, err = pt.generateEnum(schema, message, context)
+			} else {
+				file, content, err = pt.generateMessage(schema, message, context)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -106,7 +112,7 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 	buf.WriteString("    }\n\n")
 
 	//initSchema
-	buf.WriteString("    private function initSchema() {\n        self::$schema = new Schema();\n        self::$schema->setName('" + schema.Package + "." + message.Name + "');\n")
+	buf.WriteString("    private function initSchema() {\n        self::$schema = new Schema();\n        self::$schema->setName('" + schema.OrgPackage + "." + message.Name + "');\n")
 	if message.Alias != "" {
 		buf.WriteString("        self::$schema->setAlias('" + message.Alias + "');\n")
 	}
@@ -135,15 +141,73 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 
 	//message interface methods
 	buf.WriteString("    public function defaultInstance() { return new " + message.Name + "(); }\n\n")
-	buf.WriteString("    public function getName() { return self::$schema->getName(); }\n\n")
-	buf.WriteString("    public function getAlias() { return self::$schema->getAlias(); }\n\n")
-	buf.WriteString("    public function getSchema() { return self::$schema; }\n\n")
+	pt.addCommonInterfaceMethod(buf)
 
 	//getter and setter
 	for _, field := range fields {
 		buf.WriteString("    public function get" + firstUpper(field.Name) + "() { return $this->" + field.Name + "->getValue(); }\n\n")
 		buf.WriteString("    public function set" + firstUpper(field.Name) + "($value) {\n        $this->" + field.Name + "->setValue($value);\n        return $this;\n    }\n\n")
 	}
+	buf.Truncate(buf.Len() - 1)
+
+	//end of class
+	buf.WriteString("}\n")
+	return withPackageDir(message.Name, schema) + ".php", buf.Bytes(), nil
+}
+
+func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
+	buf := &bytes.Buffer{}
+	buf.WriteString("<?php\n")
+	writeGenerateComment(buf, schema.Name)
+	buf.WriteString("namespace " + pt.getNamespace(schema.Package) + ";\n\n")
+	buf.WriteString("use Breeze\\AbstractMessage;\nuse Breeze\\BreezeException;\nuse Breeze\\BreezeReader;\nuse Breeze\\BreezeWriter;\nuse Breeze\\Buffer;\nuse Breeze\\FieldDesc;\nuse Breeze\\Schema;\nuse Breeze\\Types\\TypeInt32;\n")
+
+	//class body
+	buf.WriteString("\nclass ")
+	buf.WriteString(message.Name)
+	buf.WriteString(" extends AbstractMessage {\n")
+
+	// const
+	enumValue := sortEnumValues(message)
+	for _, value := range enumValue {
+		buf.WriteString("    const " + value.Name + " = " + strconv.Itoa(value.Index) + ";\n")
+	}
+
+	//fields
+	buf.WriteString("    private static $schema;\n")
+	buf.WriteString("    private $enumValue;\n")
+
+	//construct
+	buf.WriteString("\n    public function __construct($enumValue = 0) {\n        if (is_null(self::$schema)) {\n            $this->initSchema();\n        }\n")
+	buf.WriteString("        if (!is_integer($enumValue)) {\n            throw new BreezeException('enum number must be integer');\n        }\n        $this->enumValue = $enumValue;\n    }\n\n")
+
+	// enum value
+	buf.WriteString("    public function value() {\n        return $this->enumValue;\n    }\n\n")
+
+	//initSchema
+	buf.WriteString("    private function initSchema() {\n        self::$schema = new Schema();\n        self::$schema->setName('" + schema.OrgPackage + "." + message.Name + "');\n")
+	if message.Alias != "" {
+		buf.WriteString("        self::$schema->setAlias('" + message.Alias + "');\n")
+	}
+	buf.WriteString("        self::$schema->putField(new FieldDesc(1, 'enumNumber', TypeInt32::instance()));\n    }\n\n")
+
+	//writeTo
+	buf.WriteString("    public function writeTo(Buffer $buf) {\n        BreezeWriter::writeMessage($buf, $this->getName(), function (Buffer $funcBuf) {\n")
+	buf.WriteString("            BreezeWriter::writeMessagField($funcBuf, 1, $this->enumValue, TypeInt32::instance());\n        });\n    }\n\n")
+
+	//readFrom
+	buf.WriteString("    public function readFrom(Buffer $buf) {\n        BreezeReader::readMessage($buf, function (Buffer $funcBuf, $index) {\n            switch ($index) {\n")
+	buf.WriteString("                case 1:\n                    $number = BreezeReader::readValue($funcBuf, TypeInt32::instance());\n")
+	buf.WriteString("                    switch ($number) {\n")
+	for _, value := range enumValue {
+		buf.WriteString("                        case " + strconv.Itoa(value.Index) + ":\n                            $this->enumValue = self::" + value.Name + ";\n                            break;\n")
+	}
+	buf.WriteString("                        default:\n                            throw new BreezeException('unknown enum number ' + $number);\n                    }\n                    break;\n")
+	buf.WriteString("                default: // for compatibility\n                    BreezeReader::readValue($funcBuf);\n            }\n        });\n    }\n\n")
+
+	//message interface methods
+	buf.WriteString("    public function defaultInstance() { return new " + message.Name + "(-1); }\n\n")
+	pt.addCommonInterfaceMethod(buf)
 
 	//end of class
 	buf.WriteString("}\n")
@@ -192,6 +256,12 @@ func (pt *PHPTemplate) getTypeString(tp *core.Type) (string, error) {
 		desc = desc + tp.Name[strings.LastIndex(tp.Name, ".")+1:] + "())"
 	}
 	return desc, nil
+}
+
+func (pt *PHPTemplate) addCommonInterfaceMethod(buf *bytes.Buffer) {
+	buf.WriteString("    public function getName() { return self::$schema->getName(); }\n\n")
+	buf.WriteString("    public function getAlias() { return self::$schema->getAlias(); }\n\n")
+	buf.WriteString("    public function getSchema() { return self::$schema; }\n\n")
 }
 
 func (pt *PHPTemplate) generateService(schema *core.Schema, service *core.Service, context *core.Context) (file string, content []byte, err error) {

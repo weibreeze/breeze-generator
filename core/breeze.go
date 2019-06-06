@@ -62,19 +62,22 @@ type CodeTemplate interface {
 
 //Schema describe a breeze message.
 type Schema struct {
-	Name     string //file name
-	Package  string
-	Options  map[string]string
-	Messages map[string]*Message
-	Services map[string]*Service
+	Name       string // file name
+	Package    string // file package
+	OrgPackage string // schema name package.
+	Options    map[string]string
+	Messages   map[string]*Message
+	Services   map[string]*Service
 }
 
-//Message :breeze message
+//Message :breeze message. include enum message
 type Message struct {
-	Name    string
-	Alias   string
-	Options map[string]string
-	Fields  map[int]*Field
+	Name       string
+	Alias      string
+	Options    map[string]string
+	Fields     map[int]*Field
+	IsEnum     bool
+	EnumValues map[int]string
 }
 
 //Field is a breeze message field.
@@ -121,10 +124,11 @@ type Context struct {
 	Templates []CodeTemplate
 	Schemas   map[string]*Schema
 	Messages  map[string]*Message
+	Options   map[string]string
 }
 
 //GetType : get a Type from type string
-func GetType(typeString string) (*Type, error) {
+func GetType(typeString string, removePackage bool) (*Type, error) {
 	typeString = strings.TrimSpace(typeString)
 	if typeString == "" {
 		return nil, errors.New("type is empty")
@@ -154,27 +158,30 @@ func GetType(typeString string) (*Type, error) {
 		inner := typeString[4 : len(typeString)-1]
 		index := strings.Index(inner, ",")
 		key := strings.TrimSpace(inner[:index])
-		keyType, err := GetType(key)
+		keyType, err := GetType(key, removePackage)
 		if err != nil {
 			return nil, err
 		}
 		if keyType.Number > Float64 {
 			return nil, errors.New("wrong map key type: " + typeString)
 		}
-		valueType, err := GetType(strings.TrimSpace(inner[index+1:]))
+		valueType, err := GetType(strings.TrimSpace(inner[index+1:]), removePackage)
 		if err != nil {
 			return nil, err
 		}
 		return &Type{Number: Map, TypeString: typeString, KeyType: keyType, ValueType: valueType}, nil
 	}
 	if strings.HasPrefix(typeString, "array<") && strings.HasSuffix(typeString, ">") {
-		vType, err := GetType(typeString[6 : len(typeString)-1])
+		vType, err := GetType(typeString[6:len(typeString)-1], removePackage)
 		if err != nil {
 			return nil, err
 		}
 		return &Type{Number: Array, TypeString: typeString, ValueType: vType}, nil
 	}
 	//message
+	if removePackage && strings.Index(typeString, ".") > -1 {
+		typeString = typeString[strings.LastIndex(typeString, ".")+1:]
+	}
 	return &Type{Number: Msg, Name: typeString, TypeString: typeString}, nil
 }
 

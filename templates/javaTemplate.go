@@ -43,7 +43,13 @@ func (jt *JavaTemplate) GenerateCode(schema *core.Schema, context *core.Context)
 	contents = make(map[string][]byte)
 	if len(schema.Messages) > 0 {
 		for _, message := range schema.Messages {
-			file, content, err := jt.generateMessage(schema, message, context)
+			var file string
+			var content []byte
+			if message.IsEnum {
+				file, content, err = jt.generateEnum(schema, message, context)
+			} else {
+				file, content, err = jt.generateMessage(schema, message, context)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -64,6 +70,59 @@ func (jt *JavaTemplate) GenerateCode(schema *core.Schema, context *core.Context)
 		}
 	}
 	return contents, nil
+}
+
+func (jt *JavaTemplate) generateEnum(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
+	buf := &bytes.Buffer{}
+	writeGenerateComment(buf, schema.Name)
+	pkg := schema.Options[core.JavaPackage]
+	if pkg == "" {
+		pkg = schema.Package
+	}
+	buf.WriteString("package " + pkg + ";\n\n")
+	//import
+	buf.WriteString("import com.weibo.breeze.*;\nimport com.weibo.breeze.serializer.Serializer;\n\n")
+
+	enumValues := sortEnumValues(message) //sorted enumValues
+
+	//class body
+	buf.WriteString("public enum " + message.Name + " {\n")
+	for _, value := range enumValues {
+		buf.WriteString("    " + value.Name + "(" + strconv.Itoa(value.Index) + "),\n")
+	}
+	buf.Truncate(buf.Len() - 2)
+	buf.WriteString(";\n\n")
+	fullName := schema.OrgPackage + "." + message.Name
+	buf.WriteString("    static {\n        try {\n            Breeze.registerSerializer(new " + message.Name + "Serializer());\n")
+	buf.WriteString("        } catch (BreezeException ignore) {}\n    }\n\n")
+
+	// enum number
+	buf.WriteString("    private int number;\n\n")
+
+	//constructor
+	buf.WriteString("    " + message.Name + "(int number) { this.number = number; }\n\n")
+
+	// enum serializer
+	buf.WriteString("    public static class " + message.Name + "Serializer implements Serializer<" + message.Name + "> {\n\n")
+
+	//writeTo
+	buf.WriteString("        @Override\n        public void writeToBuf(" + message.Name + " obj, BreezeBuffer buffer) throws BreezeException {\n")
+	buf.WriteString("            BreezeWriter.writeMessage(buffer, \"" + fullName + "\", () -> {\n                BreezeWriter.writeMessageField(buffer, 1, obj.number);\n            });\n        }\n\n")
+
+	//readFrom
+	buf.WriteString("        @Override\n        public " + message.Name + " readFromBuf(BreezeBuffer buffer) throws BreezeException {\n            int[] number = new int[]{-1};\n")
+	buf.WriteString("            BreezeReader.readMessage(buffer, true, (int index) -> {\n                switch (index) {\n")
+	buf.WriteString("                    case 1:\n                        number[0] = BreezeReader.readInt32(buffer);\n                        break;")
+	buf.WriteString("                    default:\n                        BreezeReader.readObject(buffer, Object.class);\n                }\n            });\n")
+	buf.WriteString("            switch (number[0]) {\n")
+	for _, value := range enumValues {
+		buf.WriteString("                case " + strconv.Itoa(value.Index) + ":\n                   return " + value.Name + ";\n")
+	}
+	buf.WriteString("            }\n            throw new BreezeException(\"unknown enum number:\" + number[0]);\n        }\n\n")
+
+	//interface methods
+	buf.WriteString("        @Override\n        public String[] getNames() { return new String[]{\"" + fullName + "\", " + message.Name + ".class.getName()}; }\n    }\n}\n")
+	return withPackageDir(message.Name, schema) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
@@ -98,7 +157,7 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	for _, field := range fields {
 		buf.WriteString("    private " + jt.getTypeString(field.Type, false) + " " + field.Name + ";\n")
 	}
-	buf.WriteString("\n    static {\n        try {\n            schema.setName(\"" + schema.Package + "." + message.Name + "\")")
+	buf.WriteString("\n    static {\n        try {\n            schema.setName(\"" + schema.OrgPackage + "." + message.Name + "\")")
 	for _, field := range fields {
 		buf.WriteString("\n                    .putField(new Schema.Field(" + strconv.Itoa(field.Index) + ", \"" + field.Name + "\", \"" + field.Type.TypeString + "\"))")
 	}
@@ -148,6 +207,7 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 		buf.WriteString("    public " + jt.getTypeString(field.Type, false) + " get" + firstUpper(field.Name) + "() { return " + field.Name + "; }\n\n")
 		buf.WriteString("    public void set" + firstUpper(field.Name) + "(" + jt.getTypeString(field.Type, false) + " " + field.Name + ") { this." + field.Name + " = " + field.Name + "; }\n\n")
 	}
+	buf.Truncate(buf.Len() - 1)
 	buf.WriteString("}\n")
 
 	return withPackageDir(message.Name, schema) + ".java", buf.Bytes(), nil

@@ -17,6 +17,7 @@ type Config struct {
 	Parser        string
 	CodeTemplates string
 	WritePath     string
+	Options       map[string]string
 }
 
 //RegisterParser can register a custom Parser for extension
@@ -135,10 +136,6 @@ func parseSchema(name string, content []byte, context *core.Context) error {
 func generateCode(context *core.Context) error {
 	oldMask := syscall.Umask(0)
 	defer syscall.Umask(oldMask)
-	err := os.MkdirAll(context.WritePath, 0777)
-	if err != nil {
-		return err
-	}
 	for _, schema := range context.Schemas {
 		for _, template := range context.Templates {
 			files, err := template.GenerateCode(schema, context)
@@ -146,15 +143,24 @@ func generateCode(context *core.Context) error {
 				fmt.Printf("error: generate code fail, template:%s, err:%s\n", template.Name(), err.Error())
 				continue
 			}
+			path := context.WritePath
+			if path[len(path)-1:] != string(os.PathSeparator) {
+				path += string(os.PathSeparator)
+			}
+			path = path + template.Name() + string(os.PathSeparator)
+			err = os.MkdirAll(path, 0777)
+			if err != nil {
+				return err
+			}
 			for name, content := range files {
 				index := strings.LastIndex(name, string(os.PathSeparator)) //contains path
 				if index > -1 {
-					err := os.MkdirAll(context.WritePath+name[:index+1], 0777)
+					err := os.MkdirAll(path+name[:index+1], 0777)
 					if err != nil {
 						return err
 					}
 				}
-				err = ioutil.WriteFile(context.WritePath+name, content, 0666)
+				err = ioutil.WriteFile(path+name, content, 0666)
 				if err != nil {
 					fmt.Printf("error: write code fail, template:%s, file name:%s, err:%s\n", template.Name(), name, err.Error())
 				}
@@ -165,6 +171,9 @@ func generateCode(context *core.Context) error {
 }
 
 func initContext(config *Config) (*core.Context, error) {
+	if config == nil {
+		config = &Config{}
+	}
 	if config.Parser == "" {
 		config.Parser = parsers.Breeze
 	}
@@ -176,6 +185,11 @@ func initContext(config *Config) (*core.Context, error) {
 	}
 	config.WritePath = addSeparator(config.WritePath)
 	context := &core.Context{Parser: parsers.GetParser(config.Parser), Schemas: make(map[string]*core.Schema), Messages: make(map[string]*core.Message), WritePath: config.WritePath}
+	if config.Options != nil {
+		context.Options = config.Options
+	} else {
+		context.Options = make(map[string]string)
+	}
 	if context.Parser == nil {
 		return nil, errors.New("can not find parser: " + config.Parser)
 	}

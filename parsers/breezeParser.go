@@ -17,19 +17,20 @@ const (
 	Message = "message"
 	Package = "package"
 	Service = "service"
+	Enum    = "enum"
 )
 
 var (
-	regPackage = regexp.MustCompile("^[\\w\\.]+$")
+	regPackage = regexp.MustCompile("^[\\w.]+$")
 	regName    = regexp.MustCompile("^[\\w]+$")
-	regField   = regexp.MustCompile("^[\\w<>, \\.]* +(\\w+) *=.*$")
+	regField   = regexp.MustCompile("^([\\w<>., ]+) +(\\w+) *= *(\\d+) *$")
 )
 
 //BreezeParser can parse a schema according to breeze specification
 type BreezeParser struct {
 }
 
-//Name : parse name
+//Name : parse _name
 func (b *BreezeParser) Name() string {
 	return Breeze
 }
@@ -75,9 +76,13 @@ func process(line string, buf *bytes.Buffer, schema *core.Schema) error {
 		}
 		schema.Options[k] = v
 	case Package:
-		schema.Package = strings.TrimSpace(line[len(Package):])
-		if !regPackage.MatchString(schema.Package) {
-			return errors.New("package name illegal. package: " + schema.Package)
+		schema.OrgPackage = strings.TrimSpace(line[len(Package):])
+		schema.Package = schema.OrgPackage
+		if !regPackage.MatchString(schema.OrgPackage) {
+			return errors.New("package _name illegal. package: " + schema.OrgPackage)
+		}
+		if UniformPackage != "" { // file package
+			schema.Package = UniformPackage
 		}
 	case Message:
 		msg, err := parseMessage(buf, line)
@@ -91,6 +96,12 @@ func process(line string, buf *bytes.Buffer, schema *core.Schema) error {
 			return err
 		}
 		schema.Services[service.Name] = service
+	case Enum:
+		msg, err := parseEnum(buf, line)
+		if err != nil {
+			return err
+		}
+		schema.Messages[msg.Name] = msg
 	}
 	return nil
 }
@@ -149,21 +160,46 @@ func parseMessage(buf *bytes.Buffer, firstLine string) (message *core.Message, e
 	return message, nil
 }
 
-func parseField(line string) (field *core.Field, err error) {
-	tag := getFieldType(line)
-	tp, err := core.GetType(tag)
+func parseEnum(buf *bytes.Buffer, firstLine string) (message *core.Message, err error) {
+	message = &core.Message{EnumValues: make(map[int]string), Options: make(map[string]string), IsEnum: true}
+	name, options, err := parseSegment(buf, firstLine, len(Enum), func(line string) error {
+		strs := strings.Split(line, "=")
+		if len(strs) != 2 {
+			return errors.New("wrong enum format. line:" + line)
+		}
+		index, err := strconv.Atoi(strings.TrimSpace(strs[1]))
+		if err != nil {
+			return errors.New("wrong enum index. line:" + line)
+		}
+		message.EnumValues[index] = strings.TrimSpace(strs[0])
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	items := strings.Split(line[len(tag):], "=")
-	if len(items) != 2 {
-		return nil, errors.New("wrong field format. line: " + line)
+	if len(message.EnumValues) == 0 {
+		return nil, errors.New("enum _value is empty. enum: " + name)
 	}
-	name := strings.TrimSpace(items[0])
-	if !regName.MatchString(name) {
-		return nil, errors.New("field name illegal. line: " + line)
+	message.Name = name
+	message.Options = options
+	if options[core.Alias] != "" {
+		message.Alias = options[core.Alias]
 	}
-	index, err := strconv.Atoi(strings.TrimSpace(items[1]))
+	return message, nil
+}
+
+func parseField(line string) (field *core.Field, err error) {
+	result := regField.FindStringSubmatchIndex(line)
+	if len(result) < 8 {
+		return nil, errors.New("wrong field format. line:" + line)
+	}
+	tag := line[result[2]:result[3]]
+	tp, err := core.GetType(tag, UniformPackage != "")
+	if err != nil {
+		return nil, err
+	}
+	name := line[result[4]:result[5]]
+	index, err := strconv.Atoi(line[result[6]:result[7]])
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +231,7 @@ func parseSegment(buf *bytes.Buffer, firstLine string, start int, parseLine func
 	}
 	name = strings.TrimSpace(name)
 	if !regName.MatchString(name) {
-		return "", nil, errors.New("segment name illegal. line:" + firstLine)
+		return "", nil, errors.New("segment _name illegal. line:" + firstLine)
 	}
 	name = strings.ToUpper(name[:1]) + name[1:]
 
@@ -207,7 +243,7 @@ func parseSegment(buf *bytes.Buffer, firstLine string, start int, parseLine func
 			return "", nil, err
 		}
 		if line == "" && err == io.EOF {
-			return "", nil, errors.New("unexpected segment end. name:" + name)
+			return "", nil, errors.New("unexpected segment end. _name:" + name)
 		}
 		if line != "" {
 			switch line {
@@ -253,7 +289,7 @@ func parseMethod(line string) (method *core.Method, err error) {
 	}
 	name := strings.TrimSpace(line[:index1])
 	if !regName.MatchString(name) {
-		return nil, errors.New("method name illegal. line: " + line)
+		return nil, errors.New("method _name illegal. line: " + line)
 	}
 
 	paramStr := strings.TrimSpace(line[index1+1 : index2])
@@ -286,14 +322,6 @@ func getTag(line string) string {
 	return line[0:strings.Index(line, " ")]
 }
 
-func getFieldType(line string) string {
-	result := regField.FindStringSubmatchIndex(line)
-	if len(result) < 4 {
-		return ""
-	}
-	return line[:result[2]]
-}
-
 func getTypeStr(str string) (index int, err error) {
 	result := len(str) - len(strings.TrimLeftFunc(str, unicode.IsSpace))
 	if strings.HasPrefix(str[result:], "map<") {
@@ -308,7 +336,7 @@ func getTypeStr(str string) (index int, err error) {
 			return 0, errors.New("wrong map format:" + str)
 		}
 		result += index
-		index, err = getTypeStr(str[result+1:]) //map value
+		index, err = getTypeStr(str[result+1:]) //map _value
 		if err != nil {
 			return 0, err
 		}
@@ -316,7 +344,7 @@ func getTypeStr(str string) (index int, err error) {
 		result += strings.Index(str[result:], ">") + 1
 	} else if strings.HasPrefix(str[result:], "array<") {
 		result += 6
-		index, err = getTypeStr(str[result:]) //array value
+		index, err = getTypeStr(str[result:]) //array _value
 		if err != nil {
 			return 0, err
 		}
