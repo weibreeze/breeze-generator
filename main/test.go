@@ -1,8 +1,9 @@
 package main
 
 import (
-	"breeze-generator"
 	"fmt"
+
+	"github.com/weibreeze/breeze-generator"
 )
 
 func main() {

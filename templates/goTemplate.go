@@ -1,10 +1,11 @@
 package templates
 
 import (
-	"breeze-generator/core"
 	"bytes"
 	"strconv"
 	"strings"
+
+	"github.com/weibreeze/breeze-generator/core"
 )
 
 const GoPackagePrefix = "go_package_prefix"
