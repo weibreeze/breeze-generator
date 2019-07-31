@@ -218,7 +218,7 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	//setter and getter
 	for _, field := range fields {
 		buf.WriteString("    public " + jt.getTypeString(field.Type, false) + " get" + firstUpper(field.Name) + "() { return " + field.Name + "; }\n\n")
-		buf.WriteString("    public void set" + firstUpper(field.Name) + "(" + jt.getTypeString(field.Type, false) + " " + field.Name + ") { this." + field.Name + " = " + field.Name + "; }\n\n")
+		buf.WriteString("    public " + message.Name + " set" + firstUpper(field.Name) + "(" + jt.getTypeString(field.Type, false) + " " + field.Name + ") { this." + field.Name + " = " + field.Name + "; return this;}\n\n")
 	}
 	buf.Truncate(buf.Len() - 1)
 	buf.WriteString("}\n")
