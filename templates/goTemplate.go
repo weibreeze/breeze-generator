@@ -12,22 +12,24 @@ const GoPackagePrefix = "go_package_prefix"
 
 var (
 	goTypes = map[int]*goTypeInfo{
-		core.Bool:    {typeString: "bool"},
-		core.String:  {typeString: "string"},
-		core.Byte:    {typeString: "byte"},
-		core.Bytes:   {typeString: "[]byte"},
-		core.Int16:   {typeString: "int16"},
-		core.Int32:   {typeString: "int32"},
-		core.Int64:   {typeString: "int64"},
-		core.Float32: {typeString: "float32"},
-		core.Float64: {typeString: "float64"},
+		core.Bool:    {typeString: "bool", writeTypeString: "breeze.WriteBool", readTypeString: "breeze.ReadBool"},
+		core.String:  {typeString: "string", writeTypeString: "breeze.WriteString", readTypeString: "breeze.ReadString"},
+		core.Byte:    {typeString: "byte", writeTypeString: "breeze.WriteByte", readTypeString: "breeze.ReadByte"},
+		core.Bytes:   {typeString: "[]byte", writeTypeString: "breeze.WriteBytes", readTypeString: "breeze.ReadBytes"},
+		core.Int16:   {typeString: "int16", writeTypeString: "breeze.WriteInt16", readTypeString: "breeze.ReadInt16"},
+		core.Int32:   {typeString: "int32", writeTypeString: "breeze.WriteInt32", readTypeString: "breeze.ReadInt32"},
+		core.Int64:   {typeString: "int64", writeTypeString: "breeze.WriteInt64", readTypeString: "breeze.ReadInt64"},
+		core.Float32: {typeString: "float32", writeTypeString: "breeze.WriteFloat32", readTypeString: "breeze.ReadFloat32"},
+		core.Float64: {typeString: "float64", writeTypeString: "breeze.WriteFloat64", readTypeString: "breeze.ReadFloat64"},
 		core.Array:   {typeString: "[]"},
 		core.Map:     {typeString: "map["},
 	}
 )
 
 type goTypeInfo struct {
-	typeString string
+	typeString      string
+	writeTypeString string
+	readTypeString  string
 }
 
 //GoTemplate : can generate golang code according to schema
@@ -122,52 +124,285 @@ func (gt *GoTemplate) generateMessage(schema *core.Schema, message *core.Message
 	//writeTo
 	shortName := strings.ToLower(message.Name[:1])
 	funcName := "func (" + shortName + " *" + message.Name + ")"
-	buf.WriteString(funcName + " WriteTo(buf *breeze.Buffer) error {\n	return breeze.WriteMessage(buf, " + shortName + ".GetName(), func(funcBuf *breeze.Buffer) {\n")
+	buf.WriteString(funcName + " WriteTo(buf *breeze.Buffer) error {\n	return breeze.WriteMessageWithoutType(buf, func(buf *breeze.Buffer) {\n")
 	for _, field := range fields {
-		switch field.Type.Number {
-		case core.String:
-			buf.WriteString("		if " + shortName + "." + firstUpper(field.Name) + " != \"\" {\n")
-		case core.Byte, core.Int16, core.Int32, core.Int64, core.Float32, core.Float64:
-			buf.WriteString("		if " + shortName + "." + firstUpper(field.Name) + " != 0 {\n")
-		case core.Map, core.Array, core.Bytes:
-			buf.WriteString("		if len(" + shortName + "." + firstUpper(field.Name) + ") > 0 {\n")
-		case core.Bool:
-			buf.WriteString("		if " + shortName + "." + firstUpper(field.Name) + " {\n")
-		default: // message
-			buf.WriteString("		if " + shortName + "." + firstUpper(field.Name) + " != nil {\n")
+		fieldName := shortName + "." + firstUpper(field.Name)
+		params := "buf, " + strconv.Itoa(field.Index) + ", " + fieldName
+		if field.Type.Number < core.Map {
+			buf.WriteString("		" + goTypes[field.Type.Number].writeTypeString + "Field(" + params + ")\n")
+		} else {
+			switch field.Type.Number {
+			case core.Array:
+				buf.WriteString("		if len(" + fieldName + ") > 0 {\n")
+				buf.WriteString("			breeze.WriteArrayField(buf, " + strconv.Itoa(field.Index) + ", len(" + fieldName + "), func(buf *breeze.Buffer) {\n")
+				gt.writeArray(buf, field.Type, fieldName, 1)
+				buf.WriteString("			})\n")
+				buf.WriteString("		}\n")
+			case core.Map:
+				buf.WriteString("		if len(" + fieldName + ") > 0 {\n")
+				buf.WriteString("			breeze.WriteMapField(buf, " + strconv.Itoa(field.Index) + ", len(" + fieldName + "), func(buf *breeze.Buffer) {\n")
+				gt.writeMap(buf, field.Type, fieldName, 1)
+				buf.WriteString("			})\n")
+				buf.WriteString("		}\n")
+			case core.Msg:
+				buf.WriteString("		if " + fieldName + " != nil {\n			breeze.WriteMessageField(")
+				buf.WriteString(params + ")\n		}\n")
+			}
 		}
-		buf.WriteString("			breeze.WriteMessageField(funcBuf, " + strconv.Itoa(field.Index) + ", " + shortName + "." + firstUpper(field.Name) + ")\n		}\n")
 	}
 	buf.WriteString("	})\n}\n\n")
 
 	//readFrom
-	buf.WriteString(funcName + " ReadFrom(buf *breeze.Buffer) error {\n		return breeze.ReadMessageByField(buf, func(funcBuf *breeze.Buffer, index int) (err error) {\n		switch index {\n")
+	buf.WriteString(funcName + " ReadFrom(buf *breeze.Buffer) error {\n		return breeze.ReadMessageField(buf, func(buf *breeze.Buffer, index int) (err error) {\n		switch index {\n")
 	for _, field := range fields {
+		fieldName := shortName + "." + firstUpper(field.Name)
 		buf.WriteString("		case " + strconv.Itoa(field.Index) + ":\n")
 		tp := field.Type
-		switch tp.Number {
-		case core.Map:
-			buf.WriteString("			" + shortName + "." + firstUpper(field.Name) + " = make(" + gt.getTypeString(tp) + ", 16)\n")
-		case core.Array:
-			buf.WriteString("			" + shortName + "." + firstUpper(field.Name) + " = make(" + gt.getTypeString(tp) + ", 0, 16)\n")
-		case core.Msg:
-			if isEnum(field.Type, schema, context) {
-				buf.WriteString("			var value " + gt.getTypeString(tp)[1:] + "\n			_, err = breeze.ReadValue(funcBuf, &value)\n")
-				buf.WriteString("			" + shortName + "." + firstUpper(field.Name) + " = &value\n")
-			} else {
-				buf.WriteString("			" + shortName + "." + firstUpper(field.Name) + " = &" + gt.getTypeString(tp)[1:] + "{}\n")
-				buf.WriteString("			_, err = breeze.ReadValue(funcBuf, " + shortName + "." + firstUpper(field.Name) + ")\n")
+		if field.Type.Number < core.Map {
+			buf.WriteString("			err = " + goTypes[tp.Number].readTypeString + "(buf, &" + fieldName + ")\n")
+		} else {
+			switch field.Type.Number {
+			case core.Array:
+				gt.readArray(buf, tp, fieldName, 1, schema, context)
+			case core.Map:
+				gt.readMap(buf, tp, fieldName, 1, schema, context)
+			case core.Msg:
+				tpStr := gt.getTypeString(tp)[1:]
+				if isEnum(field.Type, schema, context) {
+					buf.WriteString("			var value " + tpStr + "\n			result, err := breeze.ReadByEnum(buf, value, true)\n			if err == nil {\n")
+					buf.WriteString("				" + fieldName + " = result.(*" + tpStr + ")\n			}\n")
+				} else {
+					buf.WriteString("			" + fieldName + " = &" + tpStr + "{}\n")
+					buf.WriteString("			return breeze.ReadByMessage(buf, " + fieldName + ")\n")
+				}
 			}
-			continue
-		default:
 		}
-		buf.WriteString("			_, err = breeze.ReadValue(funcBuf, &" + shortName + "." + firstUpper(field.Name) + ")\n")
 	}
-	buf.WriteString("		default: //skip unknown field\n			_, err = breeze.ReadValue(funcBuf, nil)\n		}\n		return err\n	})\n}\n\n")
+	buf.WriteString("		default: //skip unknown field\n			_, err = breeze.ReadValue(buf, nil)\n		}\n		return err\n	})\n}\n\n")
 
 	//interface methods
 	gt.addCommonInterfaceMethod(funcName, gt.schemaName(message.Name), buf)
 	return importStr, nil
+}
+
+func (gt *GoTemplate) writeMap(buf *bytes.Buffer, tp *core.Type, name string, recursion int) {
+	blank := "			"
+	for i := 0; i < recursion; i++ {
+		blank += "	"
+	}
+	recStr := strconv.Itoa(recursion)
+	if tp.ValueType.Number < core.Map {
+		if tp.KeyType.Number == core.String {
+			switch tp.ValueType.Number {
+			case core.String:
+				buf.WriteString(blank + "breeze.WriteStringStringMapEntries(buf, " + name + ")\n")
+				return
+			case core.Int32:
+				buf.WriteString(blank + "breeze.WriteStringInt32MapEntries(buf, " + name + ")\n")
+				return
+			case core.Int64:
+				buf.WriteString(blank + "breeze.WriteStringInt64MapEntries(buf, " + name + ")\n")
+				return
+			}
+		}
+		buf.WriteString(blank + goTypes[tp.KeyType.Number].writeTypeString + "Type(buf)\n")
+		buf.WriteString(blank + goTypes[tp.ValueType.Number].writeTypeString + "Type(buf)\n")
+		buf.WriteString(blank + "for k" + recStr + ", v" + recStr + " := range " + name + " {")
+		buf.WriteString(blank + "	" + goTypes[tp.KeyType.Number].writeTypeString + "(buf, k" + recStr + ", false)\n")
+		buf.WriteString(blank + "	" + goTypes[tp.ValueType.Number].writeTypeString + "(buf, v" + recStr + ", false)\n")
+		buf.WriteString(blank + "}\n")
+		return
+	}
+	switch tp.ValueType.Number {
+	case core.Map:
+		buf.WriteString(blank + goTypes[tp.KeyType.Number].writeTypeString + "Type(buf)\n")
+		buf.WriteString(blank + "breeze.WritePackedMapType(buf)\n")
+		buf.WriteString(blank + "for k" + recStr + ", v" + recStr + " := range " + name + " {")
+		buf.WriteString(blank + "	" + goTypes[tp.KeyType.Number].writeTypeString + "(buf, k" + recStr + ", false)\n")
+		buf.WriteString(blank + "	breeze.WritePackedMap(buf, false, len(v" + recStr + "), func(buf *breeze.Buffer) {\n")
+		gt.writeMap(buf, tp.ValueType, "v"+recStr, recursion+1)
+		buf.WriteString(blank + "	})\n" + blank + "}\n")
+	case core.Array:
+		buf.WriteString(blank + goTypes[tp.KeyType.Number].writeTypeString + "Type(buf)\n")
+		buf.WriteString(blank + "breeze.WritePackedArrayType(buf)\n")
+		buf.WriteString(blank + "for k" + recStr + ", v" + recStr + " := range " + name + " {")
+		buf.WriteString(blank + "	" + goTypes[tp.KeyType.Number].writeTypeString + "(buf, k" + recStr + ", false)\n")
+		buf.WriteString(blank + "	breeze.WritePackedArray(buf, false, len(v" + recStr + "), func(buf *breeze.Buffer) {\n")
+		gt.writeArray(buf, tp.ValueType, "v"+recStr, recursion+1)
+		buf.WriteString(blank + "	})\n" + blank + "}\n")
+	case core.Msg:
+		buf.WriteString(blank + "first := true\n")
+		buf.WriteString(blank + "for k" + recStr + ", v" + recStr + " := range " + name + " {\n")
+		buf.WriteString(blank + "	if first {\n")
+		buf.WriteString(blank + "		" + goTypes[tp.KeyType.Number].writeTypeString + "Type(buf)\n")
+		buf.WriteString(blank + "		breeze.WriteMessageType(buf, v" + recStr + ".GetName())\n")
+		buf.WriteString(blank + "		first = false\n	}\n")
+		buf.WriteString(blank + "	" + goTypes[tp.KeyType.Number].writeTypeString + "(buf, k" + recStr + ", false)\n")
+		buf.WriteString(blank + "	v" + recStr + ".WriteTo(buf)\n")
+		buf.WriteString(blank + "}\n")
+	}
+}
+
+func (gt *GoTemplate) writeArray(buf *bytes.Buffer, tp *core.Type, name string, recursion int) {
+	blank := "			"
+	for i := 0; i < recursion; i++ {
+		blank += "	"
+	}
+	recStr := strconv.Itoa(recursion)
+	if tp.ValueType.Number < core.Map {
+		switch tp.ValueType.Number {
+		case core.String:
+			buf.WriteString(blank + "breeze.WriteStringArrayElems(buf, " + name + ")\n")
+			return
+		case core.Int32:
+			buf.WriteString(blank + "breeze.WriteInt32ArrayElems(buf, " + name + ")\n")
+			return
+		case core.Int64:
+			buf.WriteString(blank + "breeze.WriteInt64ArrayElems(buf, " + name + ")\n")
+			return
+		}
+		buf.WriteString(blank + goTypes[tp.ValueType.Number].writeTypeString + "Type(buf)\n")
+		buf.WriteString(blank + "for _, v" + recStr + " := range " + name + " {")
+		buf.WriteString(blank + "	" + goTypes[tp.ValueType.Number].writeTypeString + "(buf, v" + recStr + ", false)\n")
+		buf.WriteString(blank + "}\n")
+		return
+	}
+	switch tp.ValueType.Number {
+	case core.Map:
+		buf.WriteString(blank + "breeze.WritePackedMapType(buf)\n")
+		buf.WriteString(blank + "for _, v" + recStr + " := range " + name + " {")
+		buf.WriteString(blank + "	breeze.WritePackedMap(buf, false, len(v" + recStr + "), func(buf *breeze.Buffer) {\n")
+		gt.writeMap(buf, tp.ValueType, "v"+recStr, recursion+1)
+		buf.WriteString(blank + "	})\n" + blank + "}\n")
+	case core.Array:
+		buf.WriteString(blank + "breeze.WritePackedArrayType(buf)\n")
+		buf.WriteString(blank + "for _, v" + recStr + " := range " + name + " {")
+		buf.WriteString(blank + "	breeze.WritePackedArray(buf, false, len(v" + recStr + "), func(buf *breeze.Buffer) {\n")
+		gt.writeArray(buf, tp.ValueType, "v"+recStr, recursion+1)
+		buf.WriteString(blank + "	})\n" + blank + "}\n")
+	case core.Msg:
+		buf.WriteString(blank + "first := true\n")
+		buf.WriteString(blank + "for _, v" + recStr + " := range " + name + " {\n")
+		buf.WriteString(blank + "	if first {\n")
+		buf.WriteString(blank + "		breeze.WriteMessageType(buf, v" + recStr + ".GetName())\n")
+		buf.WriteString(blank + "		first = false\n	}\n")
+		buf.WriteString(blank + "	v" + recStr + ".WriteTo(buf)\n")
+		buf.WriteString(blank + "}\n")
+	}
+}
+
+func (gt *GoTemplate) readMap(buf *bytes.Buffer, tp *core.Type, name string, recursion int, schema *core.Schema, context *core.Context) {
+	blank := "			"
+	for i := 1; i < recursion; i++ {
+		blank += "	"
+	}
+	withType := "false"
+	assign := ":="
+	if recursion == 1 {
+		withType = "true"
+		assign = "="
+	}
+	//direct map
+	if tp.KeyType.Number == core.String && tp.ValueType.Number < core.Map {
+		switch tp.ValueType.Number {
+		case core.String:
+			buf.WriteString(blank + name + ", err " + assign + " breeze.ReadStringStringMap(buf, " + withType + ")\n")
+			return
+		case core.Int32:
+			buf.WriteString(blank + name + ", err " + assign + " breeze.ReadStringInt32Map(buf, " + withType + ")\n")
+			return
+		case core.Int64:
+			buf.WriteString(blank + name + ", err " + assign + " breeze.ReadStringInt64Map(buf, " + withType + ")\n")
+			return
+		}
+	}
+	recStr := strconv.Itoa(recursion)
+	buf.WriteString(blank + "size, err := breeze.ReadPackedSize(buf, " + withType + ")\n" + blank + "if err != nil {\n" + blank + "	return err\n" + blank + "}\n")
+	buf.WriteString(blank + name + " " + assign + " make(" + gt.getTypeString(tp) + ", size)\n")
+	buf.WriteString(blank + "err = breeze.ReadPacked(buf, size, true, func(buf *breeze.Buffer) error {\n")
+	//read key
+	buf.WriteString(blank + "	k" + recStr + ", err := " + goTypes[tp.KeyType.Number].readTypeString + "WithoutType(buf)\n")
+	buf.WriteString(blank + "	if err != nil {\n" + blank + "		return err\n" + blank + "	}\n")
+
+	//read value
+	vname := "v" + recStr
+	if tp.ValueType.Number < core.Map {
+		buf.WriteString(blank + "	" + vname + ", err := " + goTypes[tp.ValueType.Number].readTypeString + "WithoutType(buf)\n")
+	} else {
+		switch tp.ValueType.Number {
+		case core.Map:
+			gt.readMap(buf, tp.ValueType, vname, recursion+1, schema, context)
+		case core.Array:
+			gt.readArray(buf, tp.ValueType, vname, recursion+1, schema, context)
+		case core.Msg:
+			tpStr := gt.getTypeString(tp.ValueType)[1:]
+			if isEnum(tp.ValueType, schema, context) {
+				buf.WriteString(blank + "	var enum " + tpStr + "\n")
+				buf.WriteString(blank + "	result, err := enum.ReadEnum(buf, true)\n")
+				vname = "result.(*" + tpStr + ")"
+			} else {
+				buf.WriteString(blank + "	" + vname + " := &" + tpStr + "{}\n")
+				buf.WriteString(blank + "	err = " + vname + ".ReadFrom(buf)\n")
+			}
+		}
+	}
+	buf.WriteString(blank + "	if err == nil {\n" + blank + "		" + name + "[k" + recStr + "] = " + vname + "\n")
+	buf.WriteString(blank + "	}\n" + blank + "	return err\n" + blank + "})\n")
+}
+
+func (gt *GoTemplate) readArray(buf *bytes.Buffer, tp *core.Type, name string, recursion int, schema *core.Schema, context *core.Context) {
+	blank := "			"
+	for i := 1; i < recursion; i++ {
+		blank += "	"
+	}
+	withType := "false"
+	assign := ":="
+	if recursion == 1 {
+		withType = "true"
+		assign = "="
+	}
+	//direct array
+	switch tp.ValueType.Number {
+	case core.String:
+		buf.WriteString(blank + name + ", err " + assign + " breeze.ReadStringArray(buf, " + withType + ")\n")
+		return
+	case core.Int32:
+		buf.WriteString(blank + name + ", err " + assign + " breeze.ReadInt32Array(buf, " + withType + ")\n")
+		return
+	case core.Int64:
+		buf.WriteString(blank + name + ", err " + assign + " breeze.ReadInt64Array(buf, " + withType + ")\n")
+		return
+	}
+
+	recStr := strconv.Itoa(recursion)
+	buf.WriteString(blank + "size, err := breeze.ReadPackedSize(buf, " + withType + ")\n" + blank + "if err != nil {\n" + blank + "	return err\n" + blank + "}\n")
+	buf.WriteString(blank + name + " " + assign + " make(" + gt.getTypeString(tp) + ", 0, size)\n")
+	buf.WriteString(blank + "err = breeze.ReadPacked(buf, size, false, func(buf *breeze.Buffer) error {\n")
+
+	//read value
+	vname := "v" + recStr
+	if tp.ValueType.Number < core.Map {
+		buf.WriteString(blank + "	" + vname + ", err := " + goTypes[tp.ValueType.Number].readTypeString + "WithoutType(buf)\n")
+	} else {
+		switch tp.ValueType.Number {
+		case core.Map:
+			gt.readMap(buf, tp.ValueType, vname, recursion+1, schema, context)
+		case core.Array:
+			gt.readArray(buf, tp.ValueType, vname, recursion+1, schema, context)
+		case core.Msg:
+			tpStr := gt.getTypeString(tp.ValueType)[1:]
+			if isEnum(tp.ValueType, schema, context) {
+				buf.WriteString(blank + "	var enum " + tpStr + "\n")
+				buf.WriteString(blank + "	result, err := enum.ReadEnum(buf, true)\n")
+				vname = "result.(*" + tpStr + ")"
+			} else {
+				buf.WriteString(blank + "	" + vname + " := &" + tpStr + "{}\n")
+				buf.WriteString(blank + "	err = " + vname + ".ReadFrom(buf)\n")
+			}
+		}
+	}
+	buf.WriteString(blank + "	if err == nil {\n" + blank + "		" + name + " = append(" + name + ", " + vname + ")\n")
+	buf.WriteString(blank + "	}\n" + blank + "	return err\n" + blank + "})\n")
 }
 
 func (gt *GoTemplate) generateEnum(schema *core.Schema, message *core.Message, context *core.Context, buf *bytes.Buffer, importStr []string) ([]string, error) {
@@ -186,21 +421,21 @@ func (gt *GoTemplate) generateEnum(schema *core.Schema, message *core.Message, c
 	// write to
 	shortName := strings.ToLower(message.Name[:1])
 	funcName := "func (" + shortName + " " + message.Name + ")" // not address method
-	buf.WriteString(funcName + " WriteTo(buf *breeze.Buffer) error {\n	return breeze.WriteMessage(buf, " + shortName + ".GetName(), func(funcBuf *breeze.Buffer) {\n")
-	buf.WriteString("		breeze.WriteMessageField(funcBuf, 1, int(" + shortName + "))\n	})\n}\n\n")
+	buf.WriteString(funcName + " WriteTo(buf *breeze.Buffer) error {\n	return breeze.WriteMessageWithoutType(buf, func(buf *breeze.Buffer) {\n")
+	buf.WriteString("		breeze.WriteInt32Field(buf, 1, int32(" + shortName + "))\n	})\n}\n\n")
 
 	// read from
 	buf.WriteString(funcName + " ReadFrom(buf *breeze.Buffer) error {\n	return errors.New(\"can not read enum by Message.ReadFrom, Enum.ReadEnum is expected. name:\" + " + shortName + ".GetName())\n}\n\n")
 
 	// read enum
-	buf.WriteString(funcName + " ReadEnum(buf *breeze.Buffer, asAddr bool) (breeze.Enum, error) {\n	var number int\n	e := breeze.ReadMessageByField(buf, func(funcBuf *breeze.Buffer, index int) (err error) {\n")
-	buf.WriteString("		switch index {\n		case 1:\n			err = breeze.ReadInt(buf, &number)\n")
-	buf.WriteString("		default: //skip unknown field\n			_, err = breeze.ReadValue(funcBuf, nil)\n		}\n		return err\n	})\n")
+	buf.WriteString(funcName + " ReadEnum(buf *breeze.Buffer, asAddr bool) (breeze.Enum, error) {\n	var number int32\n	e := breeze.ReadMessageField(buf, func(buf *breeze.Buffer, index int) (err error) {\n")
+	buf.WriteString("		switch index {\n		case 1:\n			err = breeze.ReadInt32(buf, &number)\n")
+	buf.WriteString("		default: //skip unknown field\n			_, err = breeze.ReadValue(buf, nil)\n		}\n		return err\n	})\n")
 	buf.WriteString("	if e == nil {\n		var result " + message.Name + "\n		switch number {\n")
 	for _, v := range fields {
 		buf.WriteString("		case " + strconv.Itoa(v.Index) + ":\n			result = " + message.Name + firstUpper(v.Name) + "\n")
 	}
-	buf.WriteString("		default:\n			return nil, errors.New(\"unknown enum number \" + strconv.Itoa(number))\n		}\n		if asAddr {\n			return &result, nil\n		}\n		return result, nil\n	}\n	return nil, e\n}\n\n")
+	buf.WriteString("		default:\n			return nil, errors.New(\"unknown enum number \" + strconv.Itoa(int(number)))\n		}\n		if asAddr {\n			return &result, nil\n		}\n		return result, nil\n	}\n	return nil, e\n}\n\n")
 
 	gt.addCommonInterfaceMethod(funcName, gt.schemaName(message.Name), buf)
 	return importStr, nil
