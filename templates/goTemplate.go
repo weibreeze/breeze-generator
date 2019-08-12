@@ -348,6 +348,9 @@ func (gt *GoTemplate) readMap(buf *bytes.Buffer, tp *core.Type, name string, rec
 	}
 	buf.WriteString(blank + "	if err == nil {\n" + blank + "		" + name + "[k" + recStr + "] = " + vname + "\n")
 	buf.WriteString(blank + "	}\n" + blank + "	return err\n" + blank + "})\n")
+	if recursion == 1 {
+		buf.WriteString(blank + "return err\n")
+	}
 }
 
 func (gt *GoTemplate) readArray(buf *bytes.Buffer, tp *core.Type, name string, recursion int, schema *core.Schema, context *core.Context) {
@@ -403,6 +406,9 @@ func (gt *GoTemplate) readArray(buf *bytes.Buffer, tp *core.Type, name string, r
 	}
 	buf.WriteString(blank + "	if err == nil {\n" + blank + "		" + name + " = append(" + name + ", " + vname + ")\n")
 	buf.WriteString(blank + "	}\n" + blank + "	return err\n" + blank + "})\n")
+	if recursion == 1 {
+		buf.WriteString(blank + "return err\n")
+	}
 }
 
 func (gt *GoTemplate) generateEnum(schema *core.Schema, message *core.Message, context *core.Context, buf *bytes.Buffer, importStr []string) ([]string, error) {

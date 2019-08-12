@@ -20,8 +20,8 @@ var (
 		core.Int64:   {useString: "use Breeze\\Types\\TypeInt64;\n", descString: "TypeInt64::instance()"},
 		core.Float32: {useString: "use Breeze\\Types\\TypeFloat32;\n", descString: "TypeFloat32::instance()"},
 		core.Float64: {useString: "use Breeze\\Types\\TypeFloat64;\n", descString: "TypeFloat64::instance()"},
-		core.Array:   {useString: "use Breeze\\Types\\TypeArray;\n", descString: "new TypeArray("},
-		core.Map:     {useString: "use Breeze\\Types\\TypeMap;\n", descString: "new TypeMap("},
+		core.Array:   {useString: "use Breeze\\Types\\TypePackedArray;\n", descString: "new TypePackedArray("},
+		core.Map:     {useString: "use Breeze\\Types\\TypePackedMap;\n", descString: "new TypePackedMap("},
 		core.Msg:     {useString: "use Breeze\\Types\\TypeMessage;\n", descString: "new TypeMessage(new "},
 	}
 )
@@ -79,7 +79,7 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 	buf.WriteString("<?php\n")
 	writeGenerateComment(buf, schema.Name)
 	buf.WriteString("namespace " + pt.getNamespace(schema.Package) + ";\n\n")
-	buf.WriteString("use Breeze\\AbstractMessage;\nuse Breeze\\BreezeReader;\nuse Breeze\\BreezeWriter;\nuse Breeze\\Buffer;\nuse Breeze\\FieldDesc;\nuse Breeze\\MessageField;\nuse Breeze\\Schema;\n")
+	buf.WriteString("use Breeze\\Breeze;\nuse Breeze\\BreezeException;\nuse Breeze\\BreezeReader;\nuse Breeze\\BreezeWriter;\nuse Breeze\\Buffer;\nuse Breeze\\FieldDesc;\nuse Breeze\\Message;\nuse Breeze\\Schema;\n")
 
 	fields := sortFields(message)
 
@@ -97,20 +97,30 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 	//class body
 	buf.WriteString("\nclass ")
 	buf.WriteString(message.Name)
-	buf.WriteString(" extends AbstractMessage {\n")
+	buf.WriteString(" implements Message {\n")
 
-	//fields
 	buf.WriteString("    private static $schema;\n")
+	buf.WriteString("    private static $_inited = false;\n")
+	//fields type
+	for _, field := range fields {
+		buf.WriteString("    private static $_" + field.Name + "Type;\n")
+	}
+	buf.WriteString("\n")
+	//fields
 	for _, field := range fields {
 		buf.WriteString("    private $" + field.Name + ";\n")
 	}
 
 	//construct
-	buf.WriteString("\n    public function __construct() {\n        if (is_null(self::$schema)) {\n            $this->initSchema();\n        }\n")
+	buf.WriteString("\n    public function __construct() {\n        if (!self::$_inited) {\n")
 	for _, field := range fields {
-		buf.WriteString("        $this->" + field.Name + " = new MessageField(self::$schema->getField(" + strconv.Itoa(field.Index) + "));\n")
+		desc, err := pt.getTypeString(field.Type)
+		if err != nil {
+			return "", nil, err
+		}
+		buf.WriteString("            self::$_" + field.Name + "Type = " + desc + ";\n")
 	}
-	buf.WriteString("    }\n\n")
+	buf.WriteString("            self::$_inited = true;\n        }\n    }\n\n")
 
 	//initSchema
 	buf.WriteString("    private function initSchema() {\n        self::$schema = new Schema();\n        self::$schema->setName('" + schema.OrgPackage + "." + message.Name + "');\n")
@@ -118,36 +128,35 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 		buf.WriteString("        self::$schema->setAlias('" + message.Alias + "');\n")
 	}
 	for _, field := range fields {
-		desc, err := pt.getTypeString(field.Type)
-		if err != nil {
-			return "", nil, err
-		}
-		buf.WriteString("        self::$schema->putField(new FieldDesc(" + strconv.Itoa(field.Index) + ",'" + field.Name + "', " + desc + "));\n")
+		buf.WriteString("        self::$schema->putField(new FieldDesc(" + strconv.Itoa(field.Index) + ",'" + field.Name + "', self::$_" + field.Name + "Type));\n")
 	}
 	buf.WriteString("    }\n\n")
 
 	//writeTo
-	buf.WriteString("    public function writeTo(Buffer $buf) {\n        BreezeWriter::writeMessage($buf, $this->getName(), function (Buffer $funcBuf) {\n            $this->writeFields($funcBuf")
+	buf.WriteString("    public function writeTo(Buffer $buf) {\n        BreezeWriter::writeMessage($buf, function (Buffer $funcBuf) {\n")
 	for _, field := range fields {
-		buf.WriteString(", $this->" + field.Name)
+		buf.WriteString("            BreezeWriter::writeMessageField($funcBuf, " + strconv.Itoa(field.Index) + ", $this->" + field.Name + ", self::$_" + field.Name + "Type);\n")
 	}
-	buf.WriteString(");\n        });\n    }\n\n")
+	buf.WriteString("        });\n    }\n\n")
 
 	//readFrom
 	buf.WriteString("    public function readFrom(Buffer $buf) {\n        BreezeReader::readMessage($buf, function (Buffer $funcBuf, $index) {\n            switch ($index) {\n")
 	for _, field := range fields {
-		buf.WriteString("                case " + strconv.Itoa(field.Index) + ":\n                    return BreezeReader::readField($funcBuf, $this->" + field.Name + ");\n")
+		buf.WriteString("                case " + strconv.Itoa(field.Index) + ":\n                    $this->" + field.Name + " = self::$_" + field.Name + "Type->read($funcBuf);\n                    break;\n")
 	}
 	buf.WriteString("                default: //skip unknown field\n                    BreezeReader::readValue($funcBuf);\n            }\n        });\n    }\n\n")
 
 	//message interface methods
 	buf.WriteString("    public function defaultInstance() { return new " + message.Name + "(); }\n\n")
-	pt.addCommonInterfaceMethod(buf)
+	pt.addCommonInterfaceMethod(buf, schema, message)
 
 	//getter and setter
 	for _, field := range fields {
-		buf.WriteString("    public function get" + firstUpper(field.Name) + "() { return $this->" + field.Name + "->getValue(); }\n\n")
-		buf.WriteString("    public function set" + firstUpper(field.Name) + "($value) {\n        $this->" + field.Name + "->setValue($value);\n        return $this;\n    }\n\n")
+		upperFieldName := firstUpper(field.Name)
+		buf.WriteString("    public function get" + upperFieldName + "() { return $this->" + field.Name + "; }\n\n")
+		buf.WriteString("    public function set" + upperFieldName + "($value) {\n        if (Breeze::$CHECK_VALUE && !self::$_" + field.Name + "Type->checkType($value)) {\n")
+		buf.WriteString("            throw new BreezeException('check type fail. method:' . $this->getName() . '->set" + upperFieldName + "');\n        }\n")
+		buf.WriteString("        $this->" + field.Name + " = $value;\n        return $this;\n    }\n\n")
 	}
 	buf.Truncate(buf.Len() - 1)
 
@@ -161,12 +170,12 @@ func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, 
 	buf.WriteString("<?php\n")
 	writeGenerateComment(buf, schema.Name)
 	buf.WriteString("namespace " + pt.getNamespace(schema.Package) + ";\n\n")
-	buf.WriteString("use Breeze\\AbstractMessage;\nuse Breeze\\BreezeException;\nuse Breeze\\BreezeReader;\nuse Breeze\\BreezeWriter;\nuse Breeze\\Buffer;\nuse Breeze\\FieldDesc;\nuse Breeze\\Schema;\nuse Breeze\\Types\\TypeInt32;\n")
+	buf.WriteString("use Breeze\\BreezeException;\nuse Breeze\\BreezeReader;\nuse Breeze\\BreezeWriter;\nuse Breeze\\Buffer;\nuse Breeze\\FieldDesc;\nuse Breeze\\Message;\nuse Breeze\\Schema;\nuse Breeze\\Types\\TypeInt32;\n")
 
 	//class body
 	buf.WriteString("\nclass ")
 	buf.WriteString(message.Name)
-	buf.WriteString(" extends AbstractMessage {\n")
+	buf.WriteString(" implements Message {\n")
 
 	// const
 	enumValue := sortEnumValues(message)
@@ -179,7 +188,7 @@ func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, 
 	buf.WriteString("    private $enumValue;\n")
 
 	//construct
-	buf.WriteString("\n    public function __construct($enumValue = 0) {\n        if (is_null(self::$schema)) {\n            $this->initSchema();\n        }\n")
+	buf.WriteString("\n    public function __construct($enumValue = 0) {\n")
 	buf.WriteString("        if (!is_integer($enumValue)) {\n            throw new BreezeException('enum number must be integer');\n        }\n        $this->enumValue = $enumValue;\n    }\n\n")
 
 	// enum value
@@ -193,22 +202,22 @@ func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, 
 	buf.WriteString("        self::$schema->putField(new FieldDesc(1, 'enumNumber', TypeInt32::instance()));\n    }\n\n")
 
 	//writeTo
-	buf.WriteString("    public function writeTo(Buffer $buf) {\n        BreezeWriter::writeMessage($buf, $this->getName(), function (Buffer $funcBuf) {\n")
-	buf.WriteString("            BreezeWriter::writeMessagField($funcBuf, 1, $this->enumValue, TypeInt32::instance());\n        });\n    }\n\n")
+	buf.WriteString("    public function writeTo(Buffer $buf) {\n        BreezeWriter::writeMessage($buf, function (Buffer $funcBuf) {\n")
+	buf.WriteString("            BreezeWriter::writeMessageField($funcBuf, 1, $this->enumValue, TypeInt32::instance());\n        });\n    }\n\n")
 
 	//readFrom
 	buf.WriteString("    public function readFrom(Buffer $buf) {\n        BreezeReader::readMessage($buf, function (Buffer $funcBuf, $index) {\n            switch ($index) {\n")
-	buf.WriteString("                case 1:\n                    $number = BreezeReader::readValue($funcBuf, TypeInt32::instance());\n")
+	buf.WriteString("                case 1:\n                    $number = TypeInt32::instance()->read($funcBuf);\n")
 	buf.WriteString("                    switch ($number) {\n")
 	for _, value := range enumValue {
 		buf.WriteString("                        case " + strconv.Itoa(value.Index) + ":\n                            $this->enumValue = self::" + value.Name + ";\n                            break;\n")
 	}
-	buf.WriteString("                        default:\n                            throw new BreezeException('unknown enum number ' + $number);\n                    }\n                    break;\n")
+	buf.WriteString("                        default:\n                            throw new BreezeException('unknown enum number ' . $number);\n                    }\n                    break;\n")
 	buf.WriteString("                default: // for compatibility\n                    BreezeReader::readValue($funcBuf);\n            }\n        });\n    }\n\n")
 
 	//message interface methods
-	buf.WriteString("    public function defaultInstance() { return new " + message.Name + "(-1); }\n\n")
-	pt.addCommonInterfaceMethod(buf)
+	buf.WriteString("    public function defaultInstance() { return new " + message.Name + "(); }\n\n")
+	pt.addCommonInterfaceMethod(buf, schema, message)
 
 	//end of class
 	buf.WriteString("}\n")
@@ -259,10 +268,10 @@ func (pt *PHPTemplate) getTypeString(tp *core.Type) (string, error) {
 	return desc, nil
 }
 
-func (pt *PHPTemplate) addCommonInterfaceMethod(buf *bytes.Buffer) {
-	buf.WriteString("    public function getName() { return self::$schema->getName(); }\n\n")
-	buf.WriteString("    public function getAlias() { return self::$schema->getAlias(); }\n\n")
-	buf.WriteString("    public function getSchema() { return self::$schema; }\n\n")
+func (pt *PHPTemplate) addCommonInterfaceMethod(buf *bytes.Buffer, schema *core.Schema, message *core.Message) {
+	buf.WriteString("    public function getName() { return '" + schema.OrgPackage + "." + message.Name + "'; }\n\n")
+	buf.WriteString("    public function getAlias() { return '" + message.Alias + "'; }\n\n")
+	buf.WriteString("    public function getSchema() { \n        if (is_null(self::$schema)) {\n            $this->initSchema();\n        }\n        return self::$schema; }\n\n")
 }
 
 func (pt *PHPTemplate) generateService(schema *core.Schema, service *core.Service, context *core.Context) (file string, content []byte, err error) {

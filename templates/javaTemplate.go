@@ -159,7 +159,7 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	buf.WriteString("import static com.weibo.breeze.type.Types.*;\n\n")
 
 	//class body
-	buf.WriteString("public class " + message.Name + " implements Message {\n    private static final Schema schema = new Schema();\n")
+	buf.WriteString("public class " + message.Name + " implements Message {\n    private static final Schema breezeSchema = new Schema();\n")
 	//breezetype
 	for _, field := range fields {
 		if field.Type.Number >= core.Map {
@@ -171,7 +171,7 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	for _, field := range fields {
 		buf.WriteString("    private " + jt.getTypeString(field.Type, false) + " " + field.Name + ";\n")
 	}
-	buf.WriteString("\n    static {\n        try {\n            schema.setName(\"" + schema.OrgPackage + "." + message.Name + "\")")
+	buf.WriteString("\n    static {\n        try {\n            breezeSchema.setName(\"" + schema.OrgPackage + "." + message.Name + "\")")
 	for _, field := range fields {
 		buf.WriteString("\n                    .putField(new Schema.Field(" + strconv.Itoa(field.Index) + ", \"" + field.Name + "\", \"" + field.Type.TypeString + "\"))")
 	}
@@ -182,7 +182,7 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 			buf.WriteString("            " + field.Name + "BreezeType = getBreezeType(" + message.Name + ".class, \"" + field.Name + "\");\n")
 		}
 	}
-	buf.WriteString("        } catch (BreezeException ignore) {}\n        Breeze.putMessageInstance(schema.getName(), new " + message.Name + "());\n    }\n\n")
+	buf.WriteString("        } catch (BreezeException ignore) {}\n        Breeze.putMessageInstance(breezeSchema.getName(), new " + message.Name + "());\n    }\n\n")
 
 	//writeTo
 	buf.WriteString("    @Override\n    public void writeToBuf(BreezeBuffer buffer) throws BreezeException {\n        BreezeWriter.writeMessage(buffer, () -> {\n")
@@ -210,9 +210,9 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	buf.WriteString("                default: //skip unknown field\n                    BreezeReader.readObject(buffer, Object.class);\n            }\n        });\n        return this;\n    }\n\n")
 
 	//interface methods
-	buf.WriteString("    @Override\n    public String getName() { return schema.getName(); }\n\n")
-	buf.WriteString("    @Override\n    public String getAlias() { return schema.getAlias(); }\n\n")
-	buf.WriteString("    @Override\n    public Schema getSchema() { return schema; }\n\n")
+	buf.WriteString("    @Override\n    public String getName() { return breezeSchema.getName(); }\n\n")
+	buf.WriteString("    @Override\n    public String getAlias() { return breezeSchema.getAlias(); }\n\n")
+	buf.WriteString("    @Override\n    public Schema getSchema() { return breezeSchema; }\n\n")
 	buf.WriteString("    @Override\n    public Message getDefaultInstance() { return new " + message.Name + "(); }\n\n")
 
 	//setter and getter
