@@ -99,7 +99,7 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 	buf.WriteString(message.Name)
 	buf.WriteString(" implements Message {\n")
 
-	buf.WriteString("    private static $schema;\n")
+	buf.WriteString("    private static $_schema;\n")
 	buf.WriteString("    private static $_inited = false;\n")
 	//fields type
 	for _, field := range fields {
@@ -123,12 +123,12 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 	buf.WriteString("            self::$_inited = true;\n        }\n    }\n\n")
 
 	//initSchema
-	buf.WriteString("    private function initSchema() {\n        self::$schema = new Schema();\n        self::$schema->setName('" + schema.OrgPackage + "." + message.Name + "');\n")
+	buf.WriteString("    private function initSchema() {\n        self::$_schema = new Schema();\n        self::$_schema->setName('" + schema.OrgPackage + "." + message.Name + "');\n")
 	if message.Alias != "" {
-		buf.WriteString("        self::$schema->setAlias('" + message.Alias + "');\n")
+		buf.WriteString("        self::$_schema->setAlias('" + message.Alias + "');\n")
 	}
 	for _, field := range fields {
-		buf.WriteString("        self::$schema->putField(new FieldDesc(" + strconv.Itoa(field.Index) + ",'" + field.Name + "', self::$_" + field.Name + "Type));\n")
+		buf.WriteString("        self::$_schema->putField(new FieldDesc(" + strconv.Itoa(field.Index) + ",'" + field.Name + "', self::$_" + field.Name + "Type));\n")
 	}
 	buf.WriteString("    }\n\n")
 
@@ -147,7 +147,6 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 	buf.WriteString("                default: //skip unknown field\n                    BreezeReader::readValue($funcBuf);\n            }\n        });\n    }\n\n")
 
 	//message interface methods
-	buf.WriteString("    public function defaultInstance() { return new " + message.Name + "(); }\n\n")
 	pt.addCommonInterfaceMethod(buf, schema, message)
 
 	//getter and setter
@@ -184,7 +183,7 @@ func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, 
 	}
 
 	//fields
-	buf.WriteString("    private static $schema;\n")
+	buf.WriteString("    private static $_schema;\n")
 	buf.WriteString("    private $enumValue;\n")
 
 	//construct
@@ -195,11 +194,11 @@ func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, 
 	buf.WriteString("    public function value() {\n        return $this->enumValue;\n    }\n\n")
 
 	//initSchema
-	buf.WriteString("    private function initSchema() {\n        self::$schema = new Schema();\n        self::$schema->setName('" + schema.OrgPackage + "." + message.Name + "');\n")
+	buf.WriteString("    private function initSchema() {\n        self::$_schema = new Schema();\n        self::$_schema->setName('" + schema.OrgPackage + "." + message.Name + "');\n")
 	if message.Alias != "" {
-		buf.WriteString("        self::$schema->setAlias('" + message.Alias + "');\n")
+		buf.WriteString("        self::$_schema->setAlias('" + message.Alias + "');\n")
 	}
-	buf.WriteString("        self::$schema->putField(new FieldDesc(1, 'enumNumber', TypeInt32::instance()));\n    }\n\n")
+	buf.WriteString("        self::$_schema->putField(new FieldDesc(1, 'enumNumber', TypeInt32::instance()));\n    }\n\n")
 
 	//writeTo
 	buf.WriteString("    public function writeTo(Buffer $buf) {\n        BreezeWriter::writeMessage($buf, function (Buffer $funcBuf) {\n")
@@ -216,7 +215,6 @@ func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, 
 	buf.WriteString("                default: // for compatibility\n                    BreezeReader::readValue($funcBuf);\n            }\n        });\n    }\n\n")
 
 	//message interface methods
-	buf.WriteString("    public function defaultInstance() { return new " + message.Name + "(); }\n\n")
 	pt.addCommonInterfaceMethod(buf, schema, message)
 
 	//end of class
@@ -269,9 +267,10 @@ func (pt *PHPTemplate) getTypeString(tp *core.Type) (string, error) {
 }
 
 func (pt *PHPTemplate) addCommonInterfaceMethod(buf *bytes.Buffer, schema *core.Schema, message *core.Message) {
-	buf.WriteString("    public function getName() { return '" + schema.OrgPackage + "." + message.Name + "'; }\n\n")
-	buf.WriteString("    public function getAlias() { return '" + message.Alias + "'; }\n\n")
-	buf.WriteString("    public function getSchema() { \n        if (is_null(self::$schema)) {\n            $this->initSchema();\n        }\n        return self::$schema; }\n\n")
+	buf.WriteString("    public function defaultInstance() { return new " + message.Name + "(); }\n\n")
+	buf.WriteString("    public function messageName() { return '" + schema.OrgPackage + "." + message.Name + "'; }\n\n")
+	buf.WriteString("    public function messageAlias() { return '" + message.Alias + "'; }\n\n")
+	buf.WriteString("    public function schema() { \n        if (is_null(self::$_schema)) {\n            $this->initSchema();\n        }\n        return self::$_schema; }\n\n")
 }
 
 func (pt *PHPTemplate) generateService(schema *core.Schema, service *core.Service, context *core.Context) (file string, content []byte, err error) {

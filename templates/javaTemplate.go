@@ -210,10 +210,10 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	buf.WriteString("                default: //skip unknown field\n                    BreezeReader.readObject(buffer, Object.class);\n            }\n        });\n        return this;\n    }\n\n")
 
 	//interface methods
-	buf.WriteString("    @Override\n    public String getName() { return breezeSchema.getName(); }\n\n")
-	buf.WriteString("    @Override\n    public String getAlias() { return breezeSchema.getAlias(); }\n\n")
-	buf.WriteString("    @Override\n    public Schema getSchema() { return breezeSchema; }\n\n")
-	buf.WriteString("    @Override\n    public Message getDefaultInstance() { return new " + message.Name + "(); }\n\n")
+	buf.WriteString("    @Override\n    public String messageName() { return breezeSchema.getName(); }\n\n")
+	buf.WriteString("    @Override\n    public String messageAlias() { return breezeSchema.getAlias(); }\n\n")
+	buf.WriteString("    @Override\n    public Schema schema() { return breezeSchema; }\n\n")
+	buf.WriteString("    @Override\n    public Message defaultInstance() { return new " + message.Name + "(); }\n\n")
 
 	//setter and getter
 	for _, field := range fields {
