@@ -127,7 +127,12 @@ func (ct *CppTemplate) generateCpp(schema *core.Schema, buf *bytes.Buffer) error
 	if len(schema.Messages) > 0 {
 		writeGenerateComment(buf, schema.Name)
 		buf.WriteString("\n#include \"serialize/" + schema.Name + ".h\"\n\n")
+		var ml []*core.Message
 		for _, message := range schema.Messages {
+			ml = append(ml, message)
+		}
+		sort.Sort(MessageList(ml))
+		for _, message := range ml {
 			ct.generateMethodConstructor(schema, message, buf)
 			ct.generateMethodWriteTo(message, buf)
 			ct.generateMethodReadFrom(message, buf)
@@ -176,7 +181,22 @@ func (ct *CppTemplate) generateMethodWriteTo(message *core.Message, buf *bytes.B
 	} else {
 		fields := sortFields(message)
 		for _, field := range fields {
-			buf.WriteString("		breeze::write_message_field(buf, " + strconv.Itoa(field.Index) + ", this->" + field.Name + ");" + "\n")
+			if field.Type.TypeString == "byte" || field.Type.TypeString == "int16" || field.Type.TypeString == "int32" ||
+				field.Type.TypeString == "int64" || field.Type.TypeString == "float32" || field.Type.TypeString == "float64" {
+				buf.WriteString("		if (this->" + field.Name + " != 0) {\n")
+				buf.WriteString("			breeze::write_message_field(buf, " + strconv.Itoa(field.Index) + ", this->" + field.Name + ");\n")
+				buf.WriteString("		}\n")
+			} else if field.Type.TypeString == "string" || field.Type.TypeString == "bytes" || strings.HasPrefix(field.Type.TypeString, "map") || strings.HasPrefix(field.Type.TypeString, "array") {
+				buf.WriteString("		if (!this->" + field.Name + ".empty()) {\n")
+				buf.WriteString("			breeze::write_message_field(buf, " + strconv.Itoa(field.Index) + ", this->" + field.Name + ");\n")
+				buf.WriteString("		}\n")
+			} else if field.Type.TypeString == "bool" {
+				buf.WriteString("		if (this->" + field.Name + ") {\n")
+				buf.WriteString("			breeze::write_message_field(buf, " + strconv.Itoa(field.Index) + ", this->" + field.Name + ");\n")
+				buf.WriteString("		}\n")
+			} else {
+				buf.WriteString("		breeze::write_message_field(buf, " + strconv.Itoa(field.Index) + ", this->" + field.Name + ");\n")
+			}
 		}
 	}
 	buf.WriteString("	});\n")
@@ -193,7 +213,7 @@ func (ct *CppTemplate) generateMethodReadFrom(message *core.Message, buf *bytes.
 		fields := sortFields(message)
 		for _, field := range fields {
 			buf.WriteString("			case " + strconv.Itoa(field.Index) + ":\n" +
-				"				return breeze::read_value(buf, this->" + field.Name + ");\n")
+				"				return breeze::read_value(buf, this->" + field.Name + ", true, 0, " + `""` + ");\n")
 		}
 		buf.WriteString("			default:\n" +
 			"				return -1;\n" +
@@ -206,7 +226,7 @@ func (ct *CppTemplate) generateMethodReadFrom(message *core.Message, buf *bytes.
 			"	int number;\n" +
 			"	auto err = breeze::read_message_by_field(buf, [this, &number](BytesBuffer *buf, int index) {\n" +
 			"		if (index == 1) {\n" +
-			"			return breeze::read_value(buf, number);\n" +
+			"			return breeze::read_value(buf, number, true, 0, " + `""` + ");\n" +
 			"		} else {\n" +
 			"			return -1;\n" +
 			"		}\n" +
