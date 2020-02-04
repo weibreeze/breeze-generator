@@ -31,3 +31,10 @@
 * `Options`用来指定额外参数，例如针对不同语言生成模板的参数，比如`templates.GoPackagePrefix`用来指定go语言生成时统一的包前缀等。
 
 具体代码可以参考[main/test.go](https://github.com/weibreeze/breeze-generator/blob/master/main/test.go)
+
+# java 生成文件说明
+- 实体类文件
+- 接口文件
+- 整个工程为一个pom工程
+- 生成序列化类(可选，默认生成breeze message实现类)
+

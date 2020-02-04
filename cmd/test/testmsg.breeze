@@ -1,5 +1,5 @@
 option java_package = com.weibo.breeze.demo;
-//option with_package_dir = true;
+option with_package_dir = true;
 package motan;
 
 message TestMsg{

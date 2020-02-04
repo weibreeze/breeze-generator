@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weibreeze/breeze-generator/core"
+	"github.com/weibreeze/breeze-generator/pkg/core"
 )
 
 const GoPackagePrefix = "go_package_prefix"
@@ -39,6 +39,11 @@ type GoTemplate struct {
 //Name : template name
 func (gt *GoTemplate) Name() string {
 	return Go
+}
+
+// PostAllGenerated: handler for all schema generated
+func (gt *GoTemplate) PostAllGenerated(context *core.Context) error {
+	return nil
 }
 
 //GenerateCode : generate golang code, one schema one file

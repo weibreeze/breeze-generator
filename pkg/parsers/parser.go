@@ -3,7 +3,7 @@ package parsers
 import (
 	"strings"
 
-	"github.com/weibreeze/breeze-generator/core"
+	"github.com/weibreeze/breeze-generator/pkg/core"
 )
 
 //parser names

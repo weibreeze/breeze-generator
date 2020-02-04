@@ -1,4 +1,4 @@
-package generator
+package pkg
 
 import (
 	"errors"
@@ -8,9 +8,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/weibreeze/breeze-generator/core"
-	"github.com/weibreeze/breeze-generator/parsers"
-	"github.com/weibreeze/breeze-generator/templates"
+	"github.com/weibreeze/breeze-generator/pkg/core"
+	"github.com/weibreeze/breeze-generator/pkg/parsers"
+	"github.com/weibreeze/breeze-generator/pkg/templates"
 )
 
 //Config is a generate config struct
@@ -81,15 +81,14 @@ func Generate(name string, content []byte, config *Config) error {
 }
 
 func parseSchemaWithPath(path string, context *core.Context) error {
-	f, _ := os.Open(path)
-	fi, err := f.Stat()
+	fi, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
 
 	if fi.IsDir() {
 		var fileInfo []os.FileInfo
-		fileInfo, err = ioutil.ReadDir(fi.Name())
+		fileInfo, err = ioutil.ReadDir(path)
 		if err == nil {
 			path = addSeparator(path)
 			for _, info := range fileInfo {
@@ -137,35 +136,39 @@ func parseSchema(name string, content []byte, context *core.Context) error {
 func generateCode(context *core.Context) error {
 	oldMask := syscall.Umask(0)
 	defer syscall.Umask(oldMask)
-	for _, schema := range context.Schemas {
-		for _, template := range context.Templates {
+	for _, template := range context.Templates {
+		for _, schema := range context.Schemas {
 			files, err := template.GenerateCode(schema, context)
 			if err != nil {
 				fmt.Printf("error: generate code fail, template:%s, err:%s\n", template.Name(), err.Error())
 				continue
 			}
 			path := context.WritePath
-			if path[len(path)-1:] != string(os.PathSeparator) {
-				path += string(os.PathSeparator)
+			if path[len(path)-1:] != core.PathSeparator {
+				path += core.PathSeparator
 			}
-			path = path + template.Name() + string(os.PathSeparator)
-			err = os.MkdirAll(path, 0777)
+			path = path + template.Name() + core.PathSeparator
+			err = os.MkdirAll(path, core.DefaultNewDirectoryMode)
 			if err != nil {
 				return err
 			}
 			for name, content := range files {
-				index := strings.LastIndex(name, string(os.PathSeparator)) //contains path
+				index := strings.LastIndex(name, core.PathSeparator) //contains path
 				if index > -1 {
-					err := os.MkdirAll(path+name[:index+1], 0777)
+					err := os.MkdirAll(path+name[:index+1], core.DefaultNewDirectoryMode)
 					if err != nil {
 						return err
 					}
 				}
-				err = ioutil.WriteFile(path+name, content, 0666)
+				err = ioutil.WriteFile(path+name, content, core.DefaultNewRegularFileMode)
 				if err != nil {
 					fmt.Printf("error: write code fail, template:%s, file name:%s, err:%s\n", template.Name(), name, err.Error())
 				}
 			}
+		}
+		err := template.PostAllGenerated(context)
+		if err != nil {
+			fmt.Printf("error: post generated handle fail, template: %s", template.Name())
 		}
 	}
 	return nil

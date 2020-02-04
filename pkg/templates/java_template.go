@@ -2,10 +2,18 @@ package templates
 
 import (
 	"bytes"
+	"fmt"
+	"github.com/weibreeze/breeze-generator/pkg/utils"
+	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 
-	"github.com/weibreeze/breeze-generator/core"
+	"github.com/weibreeze/breeze-generator/pkg/core"
+)
+
+const (
+	OptionJavaMavenProject = "java_maven_project"
 )
 
 var (
@@ -38,6 +46,102 @@ type JavaTemplate struct {
 //Name : template name
 func (jt *JavaTemplate) Name() string {
 	return Java
+}
+
+// PostAllGenerated: handler for all schema generated
+func (jt *JavaTemplate) PostAllGenerated(context *core.Context) error {
+	const mavenPomTemplate = `
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		 xmlns="http://maven.apache.org/POM/4.0.0"
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<groupId>%s</groupId>
+	<artifactId>%s</artifactId>
+	<version>%s</version>
+
+	<properties>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<breeze.version>0.1.3</breeze.version>
+	</properties>
+
+	<dependencies>
+		<dependency>
+			<groupId>com.weibo</groupId>
+			<artifactId>breeze-core</artifactId>
+			<version>${breeze.version}</version>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>3.1</version>
+				<configuration>
+					<source>1.8</source>
+					<target>1.8</target>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+</project>`
+	javaMavenProject := context.Options[OptionJavaMavenProject]
+	if javaMavenProject == "" {
+		// not configured to create maven project, just return
+		return nil
+	}
+	groupAndArtifact := strings.Split(javaMavenProject, ":")
+	if len(groupAndArtifact) != 2 {
+		return fmt.Errorf("invaild maven project: %s", javaMavenProject)
+	}
+	version := context.Options[core.PackageVersion]
+	if version == "" {
+		return fmt.Errorf("no version specified")
+	}
+
+	mavenPom := fmt.Sprintf(mavenPomTemplate, groupAndArtifact[0], groupAndArtifact[1], version)
+	// Maven project structure
+	// maven_project
+	//   |- pom.xml
+	//   |- src
+	//       |- main
+	//           |- java
+	//           |- resources
+	generateRootPath := context.WritePath
+	if generateRootPath[len(generateRootPath)-1:] != core.PathSeparator {
+		generateRootPath += core.PathSeparator
+	}
+	generateRootPath = generateRootPath + jt.Name()
+	mavenProjectDir := generateRootPath + core.PathSeparator + "maven_project"
+	javaSrcPath := strings.Join([]string{mavenProjectDir, "src", "main", "java"}, core.PathSeparator)
+	resourcesPath := strings.Join([]string{mavenProjectDir, "src", "main", "resources"}, core.PathSeparator)
+	err := os.MkdirAll(javaSrcPath, core.DefaultNewDirectoryMode)
+	if err != nil {
+		return err
+	}
+	err = os.MkdirAll(resourcesPath, core.DefaultNewDirectoryMode)
+	if err != nil {
+		return err
+	}
+	err = ioutil.WriteFile(mavenProjectDir+core.PathSeparator+"pom.xml", []byte(mavenPom), core.DefaultNewRegularFileMode)
+	if err != nil {
+		return err
+	}
+	files, err := ioutil.ReadDir(generateRootPath)
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		if f.Name() == "maven_project" {
+			continue
+		}
+		err = utils.Copy(generateRootPath+core.PathSeparator+f.Name(), javaSrcPath+core.PathSeparator+f.Name())
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 //GenerateCode : generate java code
@@ -126,7 +230,7 @@ func (jt *JavaTemplate) generateEnum(schema *core.Schema, message *core.Message,
 
 	//interface methods
 	buf.WriteString("        @Override\n        public String[] getNames() { return names; }\n    }\n}\n")
-	return withPackageDir(message.Name, schema) + ".java", buf.Bytes(), nil
+	return withJavaPackageDir(message.Name, schema) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
@@ -223,7 +327,7 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	buf.Truncate(buf.Len() - 1)
 	buf.WriteString("}\n")
 
-	return withPackageDir(message.Name, schema) + ".java", buf.Bytes(), nil
+	return withJavaPackageDir(message.Name, schema) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) getTypeImport(tp *core.Type, context *core.Context, tps []string) []string {
@@ -272,4 +376,11 @@ func (jt *JavaTemplate) generateService(schema *core.Schema, service *core.Servi
 func (jt *JavaTemplate) generateMotanClient(schema *core.Schema, service *core.Service, context *core.Context) (file string, content []byte, err error) {
 	//TODO implement
 	return "", nil, nil
+}
+
+func withJavaPackageDir(fileName string, schema *core.Schema) string {
+	if schema.Options[core.WithPackageDir] != "" {
+		return strings.ReplaceAll(schema.Options[core.JavaPackage], ".", string(os.PathSeparator)) + string(os.PathSeparator) + fileName
+	}
+	return fileName
 }

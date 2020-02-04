@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"os"
 	"strings"
 )
 
@@ -26,6 +27,16 @@ const (
 	JavaPackage    = "java_package"
 	WithPackageDir = "with_package_dir"
 	Alias          = "alias"
+	PackageVersion = "package_version"
+)
+
+const (
+	PathSeparator = string(os.PathSeparator)
+)
+
+const (
+	DefaultNewDirectoryMode   os.FileMode = 0755
+	DefaultNewRegularFileMode os.FileMode = 0644
 )
 
 //rpc type
@@ -57,6 +68,7 @@ type Parser interface {
 //CodeTemplate is code template for generating code of different languages
 type CodeTemplate interface {
 	GenerateCode(schema *Schema, context *Context) (contents map[string][]byte, err error)
+	PostAllGenerated(context *Context) error
 	Name() string
 }
 

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/weibreeze/breeze-generator/core"
+	"github.com/weibreeze/breeze-generator/pkg/core"
 )
 
 //keywords
