@@ -3,13 +3,14 @@ package templates
 import (
 	"bytes"
 	"fmt"
-	"github.com/weibreeze/breeze-generator/pkg/utils"
 	"io/ioutil"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/weibreeze/breeze-generator/pkg/core"
+	"github.com/weibreeze/breeze-generator/pkg/utils"
 )
 
 const (
@@ -180,12 +181,7 @@ func (jt *JavaTemplate) GenerateCode(schema *core.Schema, context *core.Context)
 
 func (jt *JavaTemplate) generateEnum(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
 	buf := &bytes.Buffer{}
-	writeGenerateComment(buf, schema.Name)
-	pkg := schema.Options[core.JavaPackage]
-	if pkg == "" {
-		pkg = schema.Package
-	}
-	buf.WriteString("package " + pkg + ";\n\n")
+	writeJavaGenerateHeader(buf, schema)
 	//import
 	buf.WriteString("import com.weibo.breeze.*;\nimport com.weibo.breeze.serializer.Serializer;\n\nimport static com.weibo.breeze.type.Types.TYPE_INT32;\n\n")
 
@@ -235,12 +231,7 @@ func (jt *JavaTemplate) generateEnum(schema *core.Schema, message *core.Message,
 
 func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
 	buf := &bytes.Buffer{}
-	writeGenerateComment(buf, schema.Name)
-	pkg := schema.Options[core.JavaPackage]
-	if pkg == "" {
-		pkg = schema.Package
-	}
-	buf.WriteString("package " + pkg + ";\n\n")
+	writeJavaGenerateHeader(buf, schema)
 	//import
 	buf.WriteString("import com.weibo.breeze.*;\nimport com.weibo.breeze.message.Message;\nimport com.weibo.breeze.message.Schema;\nimport com.weibo.breeze.type.BreezeType;\n\n")
 
@@ -369,13 +360,76 @@ func (jt *JavaTemplate) getTypeString(tp *core.Type, wrapper bool) string {
 }
 
 func (jt *JavaTemplate) generateService(schema *core.Schema, service *core.Service, context *core.Context) (file string, content []byte, err error) {
-	//TODO implement
-	return "", nil, nil
+	buf := &bytes.Buffer{}
+	writeJavaGenerateHeader(buf, schema)
+
+	importStr := make([]string, 0, 16)
+	typeStrs := make([]string, 0, 16)
+	for _, method := range service.Methods {
+		for _, param := range method.Params {
+			typeStrs = append(typeStrs, param.Type)
+		}
+		typeStrs = append(typeStrs, method.Return)
+	}
+	typeStrs = sortUnique(typeStrs)
+	for _, t := range typeStrs {
+		tp, err := core.GetType(t, false)
+		if err != nil {
+			return "", nil, err
+		}
+		importStr = jt.getTypeImport(tp, context, importStr)
+	}
+	if len(importStr) > 0 {
+		importStr = sortUnique(importStr)
+		for _, t := range importStr {
+			buf.WriteString(t)
+		}
+		buf.WriteString("\n")
+	}
+	buf.WriteString("import java.util.*;\n\n")
+	buf.WriteString("public interface " + service.Name + " {\n")
+	for _, method := range service.Methods {
+		// We had got type before, so here no need to check error
+		returnType, _ := core.GetType(method.Return, false)
+		paramStrs := make([]string, 0, len(method.Params))
+		paramOrderedIndices := make([]int, 0, len(method.Params))
+		for idx := range method.Params {
+			paramOrderedIndices = append(paramOrderedIndices, idx)
+		}
+		sort.Ints(paramOrderedIndices)
+		for _, idx := range paramOrderedIndices {
+			paramType, _ := core.GetType(method.Params[idx].Type, false)
+			paramStrs = append(paramStrs, jt.getTypeString(paramType, false)+" "+method.Params[idx].Name)
+		}
+		paramListStr := strings.Join(paramStrs, ", ")
+		buf.WriteString(
+			fmt.Sprintf(
+				"    %s %s(%s);\n",
+				jt.getTypeString(returnType, false), method.Name, paramListStr),
+		)
+	}
+	buf.WriteString("}\n")
+
+	return withJavaPackageDir(service.Name, schema) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) generateMotanClient(schema *core.Schema, service *core.Service, context *core.Context) (file string, content []byte, err error) {
 	//TODO implement
 	return "", nil, nil
+}
+
+func getJavaPackage(schema *core.Schema) string {
+	pkg := schema.Options[core.JavaPackage]
+	if pkg == "" {
+		pkg = schema.Package
+	}
+	return pkg
+}
+
+func writeJavaGenerateHeader(buf *bytes.Buffer, schema *core.Schema) {
+	writeGenerateComment(buf, schema.Name)
+	pkg := getJavaPackage(schema)
+	buf.WriteString("package " + pkg + ";\n\n")
 }
 
 func withJavaPackageDir(fileName string, schema *core.Schema) string {
