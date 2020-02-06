@@ -168,7 +168,7 @@ func generateCode(context *core.Context) error {
 		}
 		err := template.PostAllGenerated(context)
 		if err != nil {
-			fmt.Printf("error: post generated handle fail, template: %s", template.Name())
+			fmt.Printf("error: post generated handle fail, template: %s, err: %s\n", template.Name(), err.Error())
 		}
 	}
 	return nil

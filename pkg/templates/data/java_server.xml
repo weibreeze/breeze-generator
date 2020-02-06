@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:motan="http://api.weibo.com/schema/motan"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+           http://www.springframework.org/schema/beans/spring-beans-2.5.xsd
+    	   http://api.weibo.com/schema/motan
+    	   http://api.weibo.com/schema/motan.xsd">
+
+    <motan:registry name="{{.options.motan_package_name}}Registry"
+                    regProtocol="${service.{{.options.motan_package_name}}.registry.protocol:{{.options.motan_registry_protocol}}}"
+                    address="${service.{{.options.motan_package_name}}.registry.host:{{.options.motan_registry_host}}}"
+                    port="${service.{{.options.motan_package_name}}.registry.port:{{.options.motan_registry_port}}}"
+                    requestTimeout="1000" registrySessionTimeout="10000" registryRetryPeriod="30000"/>
+
+    <motan:protocol id="{{.options.motan_package_name}}Protocol" name="motan2"
+                    maxWorkerThread="{{.options.motan_server_max_worker_threads}}"
+                    minWorkerThread="{{.options.motan_server_min_worker_threads}}"
+                    maxServerConnection="{{.options.motan_server_max_connections}}"
+    />
+
+    <motan:basicService id="{{.options.motan_package_name}}BasicServiceConfig"
+                        registry="{{.options.motan_package_name}}Registry"
+                        shareChannel="true"
+                        export="{{.options.motan_package_name}}Protocol:${service.{{.options.motan_package_name}}.export_port:{{.options.motan_server_port}}}"
+                        application="${service.application.name}"
+                        module="${service.{{.options.motan_package_name}}.group}"
+                        group="${service.{{.options.motan_package_name}}.group}"
+                        accessLog="${service.{{.options.motan_package_name}}.accesslog:{{.options.motan_server_accesslog}}}"
+                        usegz="${service.{{.options.motan_package_name}}.usegz:{{.options.motan_server_usegz}}}"
+                        mingzSize="${service.{{.options.motan_package_name}}.mingz_size:{{.options.motan_server_mingz_size}}}"
+    />
+
+    {{range $key, $value := .services }}
+    <bean id="{{$key | first2lower}}" class="${service.{{$key}}.impl}"/>
+    <motan:service ref="{{$key | first2lower}}" interface="{{$value}}" basicService="{{$.options.motan_package_name}}BasicServiceConfig" />
+    {{end}}
+</beans>

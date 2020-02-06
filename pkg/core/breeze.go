@@ -24,11 +24,61 @@ const (
 
 //option keys
 const (
-	JavaPackage    = "java_package"
-	WithPackageDir = "with_package_dir"
-	Alias          = "alias"
-	PackageVersion = "package_version"
+	JavaPackage            = "java_package"
+	WithPackageDir         = "with_package_dir"
+	Alias                  = "alias"
+	PackageVersion         = "package_version"
+	WithMotanConfiguration = "with_motan_configuration"
 )
+const (
+	MotanPackageName            = "motan_package_name"
+	MotanRegistryProtocol       = "motan_registry_protocol"
+	MotanRegistryHost           = "motan_registry_host"
+	MotanRegistryPort           = "motan_registry_port"
+	MotanClientAccesslog        = "motan_client_accesslog"
+	MotanClientRequestTimeout   = "motan_client_request_timeout"
+	MotanClientCheck            = "motan_client_check"
+	MotanClientThrowException   = "motan_client_throw_exception"
+	MotanClientRetries          = "motan_client_retries"
+	MotanClientMinConnections   = "motan_client_min_connections"
+	MotanClientMaxConnections   = "motan_client_max_connections"
+	MotanClientLoadbalance      = "motan_client_loadbalance"
+	MotanClientHa               = "motan_client_ha"
+	MotanClientUsegz            = "motan_client_usegz"
+	MotanClientMingzSize        = "motan_client_mingz_size"
+	MotanServerAccesslog        = "motan_server_accesslog"
+	MotanServerPort             = "motan_server_port"
+	MotanServerUsegz            = "motan_server_usegz"
+	MotanServerMingzSize        = "motan_server_mingz_size"
+	MotanServerMinWorkerThreads = "motan_server_min_worker_threads"
+	MotanServerMaxWorkerThreads = "motan_server_max_worker_threads"
+	MotanServerMaxConnections   = "motan_server_max_connections"
+)
+
+var MotanOptionsDefault = map[string]string{
+	MotanPackageName:            "",
+	MotanRegistryProtocol:       "",
+	MotanRegistryHost:           "",
+	MotanRegistryPort:           "",
+	MotanClientAccesslog:        "false",
+	MotanClientRequestTimeout:   "200",
+	MotanClientCheck:            "true",
+	MotanClientThrowException:   "true",
+	MotanClientRetries:          "0",
+	MotanClientMinConnections:   "2",
+	MotanClientMaxConnections:   "10",
+	MotanClientLoadbalance:      "roundrobin",
+	MotanClientHa:               "failover",
+	MotanClientUsegz:            "false",
+	MotanClientMingzSize:        "1000",
+	MotanServerAccesslog:        "false",
+	MotanServerPort:             "8100",
+	MotanServerUsegz:            "false",
+	MotanServerMingzSize:        "1000",
+	MotanServerMinWorkerThreads: "20",
+	MotanServerMaxWorkerThreads: "200",
+	MotanServerMaxConnections:   "100000",
+}
 
 const (
 	PathSeparator = string(os.PathSeparator)

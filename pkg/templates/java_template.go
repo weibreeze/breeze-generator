@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"text/template"
 
 	"github.com/weibreeze/breeze-generator/pkg/core"
 	"github.com/weibreeze/breeze-generator/pkg/utils"
@@ -16,6 +17,8 @@ import (
 const (
 	OptionJavaMavenProject = "java_maven_project"
 )
+
+const javaTemplateDataPrefix = "data/"
 
 var (
 	javaTypes = map[int]*javaTypeInfo{
@@ -49,44 +52,95 @@ func (jt *JavaTemplate) Name() string {
 	return Java
 }
 
-// PostAllGenerated: handler for all schema generated
-func (jt *JavaTemplate) PostAllGenerated(context *core.Context) error {
-	const mavenPomTemplate = `
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-		 xmlns="http://maven.apache.org/POM/4.0.0"
-		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-	<modelVersion>4.0.0</modelVersion>
-	<groupId>%s</groupId>
-	<artifactId>%s</artifactId>
-	<version>%s</version>
+func mergeMotanOptions(context *core.Context) map[string]string {
+	options := make(map[string]string, len(core.MotanOptionsDefault))
+	for k, v := range core.MotanOptionsDefault {
+		options[k] = v
+	}
+	for k, v := range context.Options {
+		options[k] = v
+	}
+	return options
+}
 
-	<properties>
-		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<breeze.version>0.1.3</breeze.version>
-	</properties>
+func (jt *JavaTemplate) getGenerateRootPath(context *core.Context) string {
+	generateRootPath := context.WritePath
+	if generateRootPath[len(generateRootPath)-1:] != core.PathSeparator {
+		generateRootPath += core.PathSeparator
+	}
+	return generateRootPath + jt.Name()
+}
 
-	<dependencies>
-		<dependency>
-			<groupId>com.weibo</groupId>
-			<artifactId>breeze-core</artifactId>
-			<version>${breeze.version}</version>
-		</dependency>
-	</dependencies>
+func (jt *JavaTemplate) generateSpringConfigurationXML(context *core.Context) error {
+	if ok, _ := strconv.ParseBool(context.Options[core.WithMotanConfiguration]); !ok {
+		return nil
+	}
+	packageName := context.Options[core.MotanPackageName]
+	if packageName == "" {
+		return fmt.Errorf("no package name specified")
+	}
+	clientTemplateContent, _ := Asset(javaTemplateDataPrefix + "java_client.xml")
+	serverTemplateContent, _ := Asset(javaTemplateDataPrefix + "java_server.xml")
 
-	<build>
-		<plugins>
-			<plugin>
-				<artifactId>maven-compiler-plugin</artifactId>
-				<version>3.1</version>
-				<configuration>
-					<source>1.8</source>
-					<target>1.8</target>
-				</configuration>
-			</plugin>
-		</plugins>
-	</build>
-</project>`
+	// serviceName and service FQCN
+	services := make(map[string]string)
+	for _, schema := range context.Schemas {
+		servicePackage := getJavaPackage(schema)
+		for _, service := range schema.Services {
+			services[service.Name] = servicePackage + "." + service.Name
+		}
+	}
+	rendData := map[string]interface{}{
+		"options":  mergeMotanOptions(context),
+		"services": services,
+	}
+
+	templateFuncs := template.FuncMap{
+		"first2lower": func(input string) string {
+			return strings.ToLower(input[0:1]) + input[1:]
+		},
+	}
+	ct := template.New("client")
+	ct.Funcs(templateFuncs)
+	_, _ = ct.Parse(string(clientTemplateContent))
+	clientConfigurationBuffer := &bytes.Buffer{}
+	if err := ct.Execute(clientConfigurationBuffer, rendData); err != nil {
+		return err
+	}
+
+	st := template.New("server")
+	st.Funcs(templateFuncs)
+	_, _ = st.Parse(string(serverTemplateContent))
+	serverConfigurationBuffer := &bytes.Buffer{}
+	if err := st.Execute(serverConfigurationBuffer, rendData); err != nil {
+		return err
+	}
+
+	generateRootPath := jt.getGenerateRootPath(context)
+	resourcesDir := generateRootPath + core.PathSeparator + "resources"
+	if err := os.MkdirAll(resourcesDir, core.DefaultNewDirectoryMode); err != nil {
+		return err
+	}
+	if err := ioutil.WriteFile(
+		resourcesDir+core.PathSeparator+packageName+"_client.xml",
+		clientConfigurationBuffer.Bytes(),
+		core.DefaultNewRegularFileMode,
+	); err != nil {
+		return err
+	}
+
+	if err := ioutil.WriteFile(
+		resourcesDir+core.PathSeparator+packageName+"_server.xml",
+		serverConfigurationBuffer.Bytes(),
+		core.DefaultNewRegularFileMode,
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (jt *JavaTemplate) generateMavenProject(context *core.Context) error {
+	pomTemplateContent, _ := Asset(javaTemplateDataPrefix + "java_pom.xml")
 	javaMavenProject := context.Options[OptionJavaMavenProject]
 	if javaMavenProject == "" {
 		// not configured to create maven project, just return
@@ -101,7 +155,18 @@ func (jt *JavaTemplate) PostAllGenerated(context *core.Context) error {
 		return fmt.Errorf("no version specified")
 	}
 
-	mavenPom := fmt.Sprintf(mavenPomTemplate, groupAndArtifact[0], groupAndArtifact[1], version)
+	rendData := map[string]string{
+		"group_id":    groupAndArtifact[0],
+		"artifact_id": groupAndArtifact[1],
+		"version":     version,
+	}
+
+	pt, _ := template.New("client").Parse(string(pomTemplateContent))
+	pomBuffer := &bytes.Buffer{}
+	if err := pt.Execute(pomBuffer, rendData); err != nil {
+		return err
+	}
+
 	// Maven project structure
 	// maven_project
 	//   |- pom.xml
@@ -109,11 +174,7 @@ func (jt *JavaTemplate) PostAllGenerated(context *core.Context) error {
 	//       |- main
 	//           |- java
 	//           |- resources
-	generateRootPath := context.WritePath
-	if generateRootPath[len(generateRootPath)-1:] != core.PathSeparator {
-		generateRootPath += core.PathSeparator
-	}
-	generateRootPath = generateRootPath + jt.Name()
+	generateRootPath := jt.getGenerateRootPath(context)
 	mavenProjectDir := generateRootPath + core.PathSeparator + "maven_project"
 	javaSrcPath := strings.Join([]string{mavenProjectDir, "src", "main", "java"}, core.PathSeparator)
 	resourcesPath := strings.Join([]string{mavenProjectDir, "src", "main", "resources"}, core.PathSeparator)
@@ -125,7 +186,7 @@ func (jt *JavaTemplate) PostAllGenerated(context *core.Context) error {
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(mavenProjectDir+core.PathSeparator+"pom.xml", []byte(mavenPom), core.DefaultNewRegularFileMode)
+	err = ioutil.WriteFile(mavenProjectDir+core.PathSeparator+"pom.xml", pomBuffer.Bytes(), core.DefaultNewRegularFileMode)
 	if err != nil {
 		return err
 	}
@@ -137,10 +198,28 @@ func (jt *JavaTemplate) PostAllGenerated(context *core.Context) error {
 		if f.Name() == "maven_project" {
 			continue
 		}
+		if f.Name() == "resources" {
+			err = utils.Copy(generateRootPath+core.PathSeparator+f.Name(), resourcesPath)
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		err = utils.Copy(generateRootPath+core.PathSeparator+f.Name(), javaSrcPath+core.PathSeparator+f.Name())
 		if err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// PostAllGenerated: handler for all schema generated
+func (jt *JavaTemplate) PostAllGenerated(context *core.Context) error {
+	if err := jt.generateSpringConfigurationXML(context); err != nil {
+		return fmt.Errorf("generate spring configuration xml failed: %s", err.Error())
+	}
+	if err := jt.generateMavenProject(context); err != nil {
+		return fmt.Errorf("generate maven project failed: %s", err.Error())
 	}
 	return nil
 }

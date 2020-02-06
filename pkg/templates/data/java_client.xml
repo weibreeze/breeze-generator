@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:weibo="http://api.weibo.com/schema/weibo"
+       xmlns:motan="http://api.weibo.com/schema/motan"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+           http://www.springframework.org/schema/beans/spring-beans-2.5.xsd
+           http://www.springframework.org/schema/context
+           http://www.springframework.org/schema/context/spring-context-2.5.xsd
+           http://api.weibo.com/schema/weibo
+           http://api.weibo.com/schema/weibo.xsd
+    	   http://api.weibo.com/schema/motan
+    	   http://api.weibo.com/schema/motan.xsd">
+
+    <motan:registry name="{{.options.motan_package_name}}Registry"
+                    regProtocol="${refer.{{.options.motan_package_name}}.registry.protocol:{{.options.motan_registry_protocol}}}"
+                    address="${refer.{{.options.motan_package_name}}.registry.host:{{.options.motan_registry_host}}}"
+                    port="${refer.{{.options.motan_package_name}}.registry.port:{{.options.motan_registry_port}}}"
+                    requestTimeout="1000"
+                    registrySessionTimeout="10000"
+                    registryRetryPeriod="30000"/>
+
+    <motan:protocol id="{{.options.motan_package_name}}Protocol" name="motan2"
+                    minClientConnection="${refer.{{.options.motan_package_name}}.min_client_connections:{{.options.motan_client_min_connections}}}"
+                    maxClientConnection="${refer.{{.options.motan_package_name}}.max_client_connections:{{.options.motan_client_max_connections}}}"
+                    loadbalance="${refer.{{.options.motan_package_name}}.loadbalance:{{.options.motan_client_loadbalance}}}"
+                    haStrategy="${refer.{{.options.motan_package_name}}.ha:{{.options.motan_client_ha}}}"
+    />
+
+    <motan:basicReferer id="{{.options.motan_package_name}}BasicClientConfig"
+                        registry="{{.options.motan_package_name}}Registry"
+                        protocol="{{.options.motan_package_name}}Protocol"
+                        application="${service.application.name}"
+                        module="${refer.{{.options.motan_package_name}}.group}"
+                        group="${refer.{{.options.motan_package_name}}.group}"
+                        requestTimeout="${refer.{{.options.motan_package_name}}.requestTimeout:{{.options.motan_client_request_timeout}}}"
+                        accessLog="${refer.{{.options.motan_package_name}}.accesslog:{{.options.motan_client_accesslog}}}"
+                        check="${refer.{{.options.motan_package_name}}.check:{{.options.motan_client_check}}}"
+                        usegz="${refer.{{.options.motan_package_name}}.usegz:{{.options.motan_client_usegz}}}"
+                        mingzSize="${refer.{{.options.motan_package_name}}.mingz_size:{{.options.motan_client_mingz_size}}}"
+    />
+
+    {{range $key, $value := .services}}
+    <motan:referer id="{{$key | first2lower}}" interface="{{$value}}" basicReferer="{{$.options.motan_package_name}}BasicClientConfig" />
+    {{end}}
+</beans>
