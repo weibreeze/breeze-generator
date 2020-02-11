@@ -10,6 +10,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <breeze.version>0.1.3</breeze.version>
+        <motan.version>1.1.8-SNAPSHOT</motan.version>
     </properties>
 
     <dependencies>
@@ -17,6 +18,11 @@
             <groupId>com.weibo</groupId>
             <artifactId>breeze-core</artifactId>
             <version>${breeze.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.weibo</groupId>
+            <artifactId>motan-core</artifactId>
+            <version>${motan.version}</version>
         </dependency>
     </dependencies>
 

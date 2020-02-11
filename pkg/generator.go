@@ -1,8 +1,11 @@
 package pkg
 
 import (
+	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -33,11 +36,7 @@ func RegisterCodeTemplate(template core.CodeTemplate) {
 
 //GeneratePath find all schema files in path, and generate code according config
 func GeneratePath(path string, config *Config) ([]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	_, err = f.Stat()
+	fstat, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
@@ -51,6 +50,14 @@ func GeneratePath(path string, config *Config) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if fstat.IsDir() {
+		optionsFileName := path + core.PathSeparator + context.Parser.Name() + ".options"
+		err := initContextOptions(optionsFileName, context)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	err = parseSchemaWithPath(path, context)
 	if err != nil {
 		return nil, err
@@ -78,6 +85,89 @@ func Generate(name string, content []byte, config *Config) error {
 		return err
 	}
 	return generateCode(context)
+}
+
+func parseOptions(reader io.Reader) (map[string]string, error) {
+	options := make(map[string]string, 16)
+	optionsReader := bufio.NewReader(reader)
+	convert := func(input string) (string, error) {
+		// convert unicode chars and saved chars
+		outputBuf := bytes.Buffer{}
+		inputRunes := []rune(input)
+		inputLen := len(inputRunes)
+		for i := 0; i < inputLen; i++ {
+			ch := inputRunes[i]
+			if ch != '\\' {
+				outputBuf.WriteRune(ch)
+			}
+			if i+1 >= inputLen {
+				outputBuf.WriteRune(ch)
+				continue
+			}
+			i++
+			ch = inputRunes[i]
+			if ch == 'u' {
+				if i+4 >= inputLen {
+					return "", fmt.Errorf("malformed \\uxxxx encoding of input %s", input)
+				}
+				var value rune = 0
+				for j := 1; j <= 4; j++ {
+					ch = inputRunes[i+j]
+					switch ch {
+					case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+						value = (value << 4) + ch - '0'
+					case 'a', 'b', 'c', 'd', 'e', 'f':
+						value = (value << 4) + 10 + ch - 'a'
+					case 'A', 'B', 'C', 'D', 'E', 'F':
+						value = (value << 4) + 10 + ch - 'A'
+					default:
+						return "", fmt.Errorf("malformed \\uxxxx encoding of input %s", input)
+					}
+				}
+				i += 4
+				outputBuf.WriteRune(value)
+			} else if ch == 't' {
+				outputBuf.WriteRune('\t')
+			} else if ch == 'r' {
+				outputBuf.WriteRune('\r')
+			} else if ch == 'n' {
+				outputBuf.WriteRune('\n')
+			} else if ch == 'f' {
+				outputBuf.WriteRune('\f')
+			} else {
+				outputBuf.WriteRune(ch)
+			}
+		}
+		return outputBuf.String(), nil
+	}
+
+	for {
+		line, err := optionsReader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return options, err
+		}
+		if err == io.EOF && line == "" {
+			return options, nil
+		}
+		line = strings.TrimSpace(line)
+		if len(line) == 0 || line[0] == '#' {
+			continue
+		}
+		idx := strings.IndexByte(line, '=')
+		if idx == -1 {
+			// no value ignore
+			continue
+		}
+		key, err := convert(strings.TrimSpace(line[:idx]))
+		if err != nil {
+			return options, err
+		}
+		value, err := convert(strings.TrimSpace(line[idx+1:]))
+		if err != nil {
+			return options, err
+		}
+		options[key] = value
+	}
 }
 
 func parseSchemaWithPath(path string, context *core.Context) error {
@@ -200,6 +290,27 @@ func initContext(config *Config) (*core.Context, error) {
 	var err error
 	context.Templates, err = templates.GetTemplate(config.CodeTemplates)
 	return context, err
+}
+
+func initContextOptions(optionsFileName string, context *core.Context) error {
+	if _, err := os.Stat(optionsFileName); err == nil {
+		f, err := os.Open(optionsFileName)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		options, err := parseOptions(f)
+		if err != nil {
+			return err
+		}
+		for k, v := range options {
+			if _, exist := context.Options[k]; exist {
+				continue
+			}
+			context.Options[k] = v
+		}
+	}
+	return nil
 }
 
 func addSeparator(path string) string {
