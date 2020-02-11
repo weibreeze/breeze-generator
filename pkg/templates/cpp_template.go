@@ -165,12 +165,12 @@ func (ct *CppTemplate) generateMethodConstructor(schema *core.Schema, message *c
 			"	schema_->name_ = \"" + schema.Package + "." + message.Name + "\";\n" +
 			"}\n\n" +
 			"bool operator==(const " + message.Name + " &a, const " + message.Name + " &b) { return a.value_ == b.value_; }\n\n" +
-			"bool operator==(const " + message.Name + " &a, const MyEnum::E" + message.Name + " &b) { return a.value_ == b; }\n\n" +
-			"bool operator==(const MyEnum::E" + message.Name + " &a, const " + message.Name + " &b) { return a == b.value_; }\n\n" +
+			"bool operator==(const " + message.Name + " &a, const " + message.Name + "::E" + message.Name + " &b) { return a.value_ == b; }\n\n" +
+			"bool operator==(const " + message.Name + "::E" + message.Name + " &a, const " + message.Name + " &b) { return a == b.value_; }\n\n" +
 			"bool operator!=(const " + message.Name + " &a, const " + message.Name + " &b) { return a.value_ != b.value_; }\n\n" +
-			"bool operator!=(const " + message.Name + " &a, const MyEnum::E" + message.Name + " &b) { return a.value_ != b; }\n\n" +
-			"bool operator!=(const MyEnum::E" + message.Name + " &a, const " + message.Name + " &b) { return a != b.value_; }\n\n" +
-			message.Name + " &" + message.Name + "::operator=(const " + message.Name + "::E" + message.Name + " &a) {\n" +
+			"bool operator!=(const " + message.Name + " &a, const " + message.Name + "::E" + message.Name + " &b) { return a.value_ != b; }\n\n" +
+			"bool operator!=(const " + message.Name + "::E" + message.Name + " &a, const " + message.Name + " &b) { return a != b.value_; }\n\n" +
+			message.Name + "& " + message.Name + "::operator=(const " + message.Name + "::E" + message.Name + " &a) {\n" +
 			"    this->value_ = a;\n" +
 			"    return *this;\n" +
 			"}\n\n")

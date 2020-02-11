@@ -52,17 +52,6 @@ func (jt *JavaTemplate) Name() string {
 	return Java
 }
 
-func mergeMotanOptions(context *core.Context) map[string]string {
-	options := make(map[string]string, len(core.MotanOptionsDefault))
-	for k, v := range core.MotanOptionsDefault {
-		options[k] = v
-	}
-	for k, v := range context.Options {
-		options[k] = v
-	}
-	return options
-}
-
 func (jt *JavaTemplate) getGenerateRootPath(context *core.Context) string {
 	generateRootPath := context.WritePath
 	if generateRootPath[len(generateRootPath)-1:] != core.PathSeparator {
@@ -247,6 +236,13 @@ func (jt *JavaTemplate) GenerateCode(schema *core.Schema, context *core.Context)
 	if len(schema.Services) > 0 {
 		for _, service := range schema.Services {
 			file, content, err := jt.generateService(schema, service, context)
+			if err != nil {
+				return nil, err
+			}
+			if file != "" && content != nil {
+				contents[file] = content
+			}
+			file, content, err = jt.generateMotanClient(schema, service, context)
 			if err != nil {
 				return nil, err
 			}
@@ -438,34 +434,41 @@ func (jt *JavaTemplate) getTypeString(tp *core.Type, wrapper bool) string {
 	return ""
 }
 
+func (jt *JavaTemplate) getServiceImports(context *core.Context, service *core.Service) ([]string, error) {
+	imports := make([]string, 0, 16)
+	imports = append(imports, "import java.util.*;")
+	types := make([]string, 0, 16)
+	for _, method := range service.Methods {
+		for _, param := range method.Params {
+			types = append(types, param.Type)
+		}
+		types = append(types, method.Return)
+	}
+	types = sortUnique(types)
+	for _, t := range types {
+		tp, err := core.GetType(t, false)
+		if err != nil {
+			return nil, err
+		}
+		imports = jt.getTypeImport(tp, context, imports)
+	}
+	if len(imports) > 0 {
+		imports = sortUnique(imports)
+	}
+	return imports, nil
+}
+
 func (jt *JavaTemplate) generateService(schema *core.Schema, service *core.Service, context *core.Context) (file string, content []byte, err error) {
 	buf := &bytes.Buffer{}
 	writeJavaGenerateHeader(buf, schema)
-
-	importStr := make([]string, 0, 16)
-	typeStrs := make([]string, 0, 16)
-	for _, method := range service.Methods {
-		for _, param := range method.Params {
-			typeStrs = append(typeStrs, param.Type)
-		}
-		typeStrs = append(typeStrs, method.Return)
+	imports, err := jt.getServiceImports(context, service)
+	if err != nil {
+		return "", nil, err
 	}
-	typeStrs = sortUnique(typeStrs)
-	for _, t := range typeStrs {
-		tp, err := core.GetType(t, false)
-		if err != nil {
-			return "", nil, err
-		}
-		importStr = jt.getTypeImport(tp, context, importStr)
+	if len(imports) > 0 {
+		buf.WriteString(strings.Join(imports, "\n"))
 	}
-	if len(importStr) > 0 {
-		importStr = sortUnique(importStr)
-		for _, t := range importStr {
-			buf.WriteString(t)
-		}
-		buf.WriteString("\n")
-	}
-	buf.WriteString("import java.util.*;\n\n")
+	buf.WriteString("\n\n")
 	buf.WriteString("public interface " + service.Name + " {\n")
 	for _, method := range service.Methods {
 		// We had got type before, so here no need to check error
@@ -488,13 +491,56 @@ func (jt *JavaTemplate) generateService(schema *core.Schema, service *core.Servi
 		)
 	}
 	buf.WriteString("}\n")
-
 	return withJavaPackageDir(service.Name, schema) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) generateMotanClient(schema *core.Schema, service *core.Service, context *core.Context) (file string, content []byte, err error) {
-	//TODO implement
-	return "", nil, nil
+	rendData := make(map[string]interface{}, 16)
+	rendData["service_name"] = service.Name
+	rendData["java_package"] = getJavaPackage(schema)
+	methods := make([]map[string]string, 0, len(service.Methods))
+	imports, err := jt.getServiceImports(context, service)
+	if err != nil {
+		return "", nil, err
+	}
+	rendData["imports"] = strings.Join(imports, "\n")
+	for _, method := range service.Methods {
+		returnType, _ := core.GetType(method.Return, false)
+		returnTypeStr := jt.getTypeString(returnType, false)
+		paramStrs := make([]string, 0, len(method.Params))
+		paramNameStrs := make([]string, 0, len(method.Params))
+		paramOrderedIndices := make([]int, 0, len(method.Params))
+		for idx := range method.Params {
+			paramOrderedIndices = append(paramOrderedIndices, idx)
+		}
+		sort.Ints(paramOrderedIndices)
+		for _, idx := range paramOrderedIndices {
+			paramType, _ := core.GetType(method.Params[idx].Type, false)
+			paramStrs = append(paramStrs, jt.getTypeString(paramType, false)+" "+method.Params[idx].Name)
+			paramNameStrs = append(paramNameStrs, method.Params[idx].Name)
+		}
+		paramListStr := strings.Join(paramStrs, ", ")
+		paramNameListStr := strings.Join(paramNameStrs, ", ")
+		methods = append(methods, map[string]string{
+			"name":                method.Name,
+			"return_type_str":     returnTypeStr,
+			"param_name_list_str": paramNameListStr,
+			"param_list_str":      paramListStr,
+		})
+	}
+	rendData["methods"] = methods
+
+	clientTemplateContent, _ := Asset(javaTemplateDataPrefix + "java_client.java")
+	clientTemplate, err := template.New("java_client").Parse(string(clientTemplateContent))
+	if err != nil {
+		panic(err)
+	}
+	javaClientBuffer := &bytes.Buffer{}
+	if err := clientTemplate.Execute(javaClientBuffer, rendData); err != nil {
+		return "", nil, err
+	}
+
+	return withJavaPackageDir(service.Name+"Client.java", schema), javaClientBuffer.Bytes(), nil
 }
 
 func getJavaPackage(schema *core.Schema) string {
@@ -512,8 +558,20 @@ func writeJavaGenerateHeader(buf *bytes.Buffer, schema *core.Schema) {
 }
 
 func withJavaPackageDir(fileName string, schema *core.Schema) string {
-	if schema.Options[core.WithPackageDir] != "" {
-		return strings.ReplaceAll(schema.Options[core.JavaPackage], ".", string(os.PathSeparator)) + string(os.PathSeparator) + fileName
+	javaPackage := getJavaPackage(schema)
+	if javaPackage != "" {
+		return strings.ReplaceAll(javaPackage, ".", string(os.PathSeparator)) + string(os.PathSeparator) + fileName
 	}
 	return fileName
+}
+
+func mergeMotanOptions(context *core.Context) map[string]string {
+	options := make(map[string]string, len(core.MotanOptionsDefault))
+	for k, v := range core.MotanOptionsDefault {
+		options[k] = v
+	}
+	for k, v := range context.Options {
+		options[k] = v
+	}
+	return options
 }
