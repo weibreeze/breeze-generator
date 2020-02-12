@@ -2,11 +2,23 @@ package templates
 
 import (
 	"bytes"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"text/template"
 
-	"github.com/weibreeze/breeze-generator/core"
+	"github.com/weibreeze/breeze-generator/pkg/core"
+	"github.com/weibreeze/breeze-generator/pkg/utils"
 )
+
+const (
+	OptionJavaMavenProject = "java_maven_project"
+)
+
+const javaTemplateDataPrefix = "data/"
 
 var (
 	javaTypes = map[int]*javaTypeInfo{
@@ -40,6 +52,167 @@ func (jt *JavaTemplate) Name() string {
 	return Java
 }
 
+func (jt *JavaTemplate) getGenerateRootPath(context *core.Context) string {
+	generateRootPath := context.WritePath
+	if generateRootPath[len(generateRootPath)-1:] != core.PathSeparator {
+		generateRootPath += core.PathSeparator
+	}
+	return generateRootPath + jt.Name()
+}
+
+func (jt *JavaTemplate) generateSpringConfigurationXML(context *core.Context) error {
+	if ok, _ := strconv.ParseBool(context.Options[core.WithMotanConfiguration]); !ok {
+		return nil
+	}
+	packageName := context.Options[core.MotanPackageName]
+	if packageName == "" {
+		return fmt.Errorf("no package name specified")
+	}
+	clientTemplateContent, _ := Asset(javaTemplateDataPrefix + "java_client.xml")
+	serverTemplateContent, _ := Asset(javaTemplateDataPrefix + "java_server.xml")
+
+	// serviceName and service FQCN
+	services := make(map[string]string)
+	for _, schema := range context.Schemas {
+		servicePackage := getJavaPackage(schema)
+		for _, service := range schema.Services {
+			services[service.Name] = servicePackage + "." + service.Name
+		}
+	}
+	rendData := map[string]interface{}{
+		"options":  mergeMotanOptions(context),
+		"services": services,
+	}
+
+	templateFuncs := template.FuncMap{
+		"first2lower": func(input string) string {
+			return strings.ToLower(input[0:1]) + input[1:]
+		},
+	}
+	ct := template.New("client")
+	ct.Funcs(templateFuncs)
+	_, _ = ct.Parse(string(clientTemplateContent))
+	clientConfigurationBuffer := &bytes.Buffer{}
+	if err := ct.Execute(clientConfigurationBuffer, rendData); err != nil {
+		return err
+	}
+
+	st := template.New("server")
+	st.Funcs(templateFuncs)
+	_, _ = st.Parse(string(serverTemplateContent))
+	serverConfigurationBuffer := &bytes.Buffer{}
+	if err := st.Execute(serverConfigurationBuffer, rendData); err != nil {
+		return err
+	}
+
+	generateRootPath := jt.getGenerateRootPath(context)
+	resourcesDir := generateRootPath + core.PathSeparator + "resources"
+	if err := os.MkdirAll(resourcesDir, core.DefaultNewDirectoryMode); err != nil {
+		return err
+	}
+	if err := ioutil.WriteFile(
+		resourcesDir+core.PathSeparator+packageName+"_client.xml",
+		clientConfigurationBuffer.Bytes(),
+		core.DefaultNewRegularFileMode,
+	); err != nil {
+		return err
+	}
+
+	if err := ioutil.WriteFile(
+		resourcesDir+core.PathSeparator+packageName+"_server.xml",
+		serverConfigurationBuffer.Bytes(),
+		core.DefaultNewRegularFileMode,
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (jt *JavaTemplate) generateMavenProject(context *core.Context) error {
+	pomTemplateContent, _ := Asset(javaTemplateDataPrefix + "java_pom.xml")
+	javaMavenProject := context.Options[OptionJavaMavenProject]
+	if javaMavenProject == "" {
+		// not configured to create maven project, just return
+		return nil
+	}
+	groupAndArtifact := strings.Split(javaMavenProject, ":")
+	if len(groupAndArtifact) != 2 {
+		return fmt.Errorf("invaild maven project: %s", javaMavenProject)
+	}
+	version := context.Options[core.PackageVersion]
+	if version == "" {
+		return fmt.Errorf("no version specified")
+	}
+
+	rendData := map[string]string{
+		"group_id":    groupAndArtifact[0],
+		"artifact_id": groupAndArtifact[1],
+		"version":     version,
+	}
+
+	pt, _ := template.New("client").Parse(string(pomTemplateContent))
+	pomBuffer := &bytes.Buffer{}
+	if err := pt.Execute(pomBuffer, rendData); err != nil {
+		return err
+	}
+
+	// Maven project structure
+	// maven_project
+	//   |- pom.xml
+	//   |- src
+	//       |- main
+	//           |- java
+	//           |- resources
+	generateRootPath := jt.getGenerateRootPath(context)
+	mavenProjectDir := generateRootPath + core.PathSeparator + "maven_project"
+	javaSrcPath := strings.Join([]string{mavenProjectDir, "src", "main", "java"}, core.PathSeparator)
+	resourcesPath := strings.Join([]string{mavenProjectDir, "src", "main", "resources"}, core.PathSeparator)
+	err := os.MkdirAll(javaSrcPath, core.DefaultNewDirectoryMode)
+	if err != nil {
+		return err
+	}
+	err = os.MkdirAll(resourcesPath, core.DefaultNewDirectoryMode)
+	if err != nil {
+		return err
+	}
+	err = ioutil.WriteFile(mavenProjectDir+core.PathSeparator+"pom.xml", pomBuffer.Bytes(), core.DefaultNewRegularFileMode)
+	if err != nil {
+		return err
+	}
+	files, err := ioutil.ReadDir(generateRootPath)
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		if f.Name() == "maven_project" {
+			continue
+		}
+		if f.Name() == "resources" {
+			err = utils.Copy(generateRootPath+core.PathSeparator+f.Name(), resourcesPath)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		err = utils.Copy(generateRootPath+core.PathSeparator+f.Name(), javaSrcPath+core.PathSeparator+f.Name())
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// PostAllGenerated: handler for all schema generated
+func (jt *JavaTemplate) PostAllGenerated(context *core.Context) error {
+	if err := jt.generateSpringConfigurationXML(context); err != nil {
+		return fmt.Errorf("generate spring configuration xml failed: %s", err.Error())
+	}
+	if err := jt.generateMavenProject(context); err != nil {
+		return fmt.Errorf("generate maven project failed: %s", err.Error())
+	}
+	return nil
+}
+
 //GenerateCode : generate java code
 func (jt *JavaTemplate) GenerateCode(schema *core.Schema, context *core.Context) (contents map[string][]byte, err error) {
 	contents = make(map[string][]byte)
@@ -69,6 +242,13 @@ func (jt *JavaTemplate) GenerateCode(schema *core.Schema, context *core.Context)
 			if file != "" && content != nil {
 				contents[file] = content
 			}
+			file, content, err = jt.generateMotanClient(schema, service, context)
+			if err != nil {
+				return nil, err
+			}
+			if file != "" && content != nil {
+				contents[file] = content
+			}
 		}
 	}
 	return contents, nil
@@ -76,12 +256,7 @@ func (jt *JavaTemplate) GenerateCode(schema *core.Schema, context *core.Context)
 
 func (jt *JavaTemplate) generateEnum(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
 	buf := &bytes.Buffer{}
-	writeGenerateComment(buf, schema.Name)
-	pkg := schema.Options[core.JavaPackage]
-	if pkg == "" {
-		pkg = schema.Package
-	}
-	buf.WriteString("package " + pkg + ";\n\n")
+	writeJavaGenerateHeader(buf, schema)
 	//import
 	buf.WriteString("import com.weibo.breeze.*;\nimport com.weibo.breeze.serializer.Serializer;\n\nimport static com.weibo.breeze.type.Types.TYPE_INT32;\n\n")
 
@@ -126,17 +301,12 @@ func (jt *JavaTemplate) generateEnum(schema *core.Schema, message *core.Message,
 
 	//interface methods
 	buf.WriteString("        @Override\n        public String[] getNames() { return names; }\n    }\n}\n")
-	return withPackageDir(message.Name, schema) + ".java", buf.Bytes(), nil
+	return withJavaPackageDir(message.Name, schema) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
 	buf := &bytes.Buffer{}
-	writeGenerateComment(buf, schema.Name)
-	pkg := schema.Options[core.JavaPackage]
-	if pkg == "" {
-		pkg = schema.Package
-	}
-	buf.WriteString("package " + pkg + ";\n\n")
+	writeJavaGenerateHeader(buf, schema)
 	//import
 	buf.WriteString("import com.weibo.breeze.*;\nimport com.weibo.breeze.message.Message;\nimport com.weibo.breeze.message.Schema;\nimport com.weibo.breeze.type.BreezeType;\n\n")
 
@@ -223,7 +393,7 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	buf.Truncate(buf.Len() - 1)
 	buf.WriteString("}\n")
 
-	return withPackageDir(message.Name, schema) + ".java", buf.Bytes(), nil
+	return withJavaPackageDir(message.Name, schema) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) getTypeImport(tp *core.Type, context *core.Context, tps []string) []string {
@@ -264,12 +434,144 @@ func (jt *JavaTemplate) getTypeString(tp *core.Type, wrapper bool) string {
 	return ""
 }
 
+func (jt *JavaTemplate) getServiceImports(context *core.Context, service *core.Service) ([]string, error) {
+	imports := make([]string, 0, 16)
+	imports = append(imports, "import java.util.*;")
+	types := make([]string, 0, 16)
+	for _, method := range service.Methods {
+		for _, param := range method.Params {
+			types = append(types, param.Type)
+		}
+		types = append(types, method.Return)
+	}
+	types = sortUnique(types)
+	for _, t := range types {
+		tp, err := core.GetType(t, false)
+		if err != nil {
+			return nil, err
+		}
+		imports = jt.getTypeImport(tp, context, imports)
+	}
+	if len(imports) > 0 {
+		imports = sortUnique(imports)
+	}
+	return imports, nil
+}
+
 func (jt *JavaTemplate) generateService(schema *core.Schema, service *core.Service, context *core.Context) (file string, content []byte, err error) {
-	//TODO implement
-	return "", nil, nil
+	buf := &bytes.Buffer{}
+	writeJavaGenerateHeader(buf, schema)
+	imports, err := jt.getServiceImports(context, service)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(imports) > 0 {
+		buf.WriteString(strings.Join(imports, "\n"))
+	}
+	buf.WriteString("\n\n")
+	buf.WriteString("public interface " + service.Name + " {\n")
+	for _, method := range service.Methods {
+		// We had got type before, so here no need to check error
+		returnType, _ := core.GetType(method.Return, false)
+		paramStrs := make([]string, 0, len(method.Params))
+		paramOrderedIndices := make([]int, 0, len(method.Params))
+		for idx := range method.Params {
+			paramOrderedIndices = append(paramOrderedIndices, idx)
+		}
+		sort.Ints(paramOrderedIndices)
+		for _, idx := range paramOrderedIndices {
+			paramType, _ := core.GetType(method.Params[idx].Type, false)
+			paramStrs = append(paramStrs, jt.getTypeString(paramType, false)+" "+method.Params[idx].Name)
+		}
+		paramListStr := strings.Join(paramStrs, ", ")
+		buf.WriteString(
+			fmt.Sprintf(
+				"    %s %s(%s);\n",
+				jt.getTypeString(returnType, false), method.Name, paramListStr),
+		)
+	}
+	buf.WriteString("}\n")
+	return withJavaPackageDir(service.Name, schema) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) generateMotanClient(schema *core.Schema, service *core.Service, context *core.Context) (file string, content []byte, err error) {
-	//TODO implement
-	return "", nil, nil
+	rendData := make(map[string]interface{}, 16)
+	rendData["service_name"] = service.Name
+	rendData["java_package"] = getJavaPackage(schema)
+	methods := make([]map[string]string, 0, len(service.Methods))
+	imports, err := jt.getServiceImports(context, service)
+	if err != nil {
+		return "", nil, err
+	}
+	rendData["imports"] = strings.Join(imports, "\n")
+	for _, method := range service.Methods {
+		returnType, _ := core.GetType(method.Return, false)
+		returnTypeStr := jt.getTypeString(returnType, false)
+		paramStrs := make([]string, 0, len(method.Params))
+		paramNameStrs := make([]string, 0, len(method.Params))
+		paramOrderedIndices := make([]int, 0, len(method.Params))
+		for idx := range method.Params {
+			paramOrderedIndices = append(paramOrderedIndices, idx)
+		}
+		sort.Ints(paramOrderedIndices)
+		for _, idx := range paramOrderedIndices {
+			paramType, _ := core.GetType(method.Params[idx].Type, false)
+			paramStrs = append(paramStrs, jt.getTypeString(paramType, false)+" "+method.Params[idx].Name)
+			paramNameStrs = append(paramNameStrs, method.Params[idx].Name)
+		}
+		paramListStr := strings.Join(paramStrs, ", ")
+		paramNameListStr := strings.Join(paramNameStrs, ", ")
+		methods = append(methods, map[string]string{
+			"name":                method.Name,
+			"return_type_str":     returnTypeStr,
+			"param_name_list_str": paramNameListStr,
+			"param_list_str":      paramListStr,
+		})
+	}
+	rendData["methods"] = methods
+
+	clientTemplateContent, _ := Asset(javaTemplateDataPrefix + "java_client.java")
+	clientTemplate, err := template.New("java_client").Parse(string(clientTemplateContent))
+	if err != nil {
+		panic(err)
+	}
+	javaClientBuffer := &bytes.Buffer{}
+	if err := clientTemplate.Execute(javaClientBuffer, rendData); err != nil {
+		return "", nil, err
+	}
+
+	return withJavaPackageDir(service.Name+"Client.java", schema), javaClientBuffer.Bytes(), nil
+}
+
+func getJavaPackage(schema *core.Schema) string {
+	pkg := schema.Options[core.JavaPackage]
+	if pkg == "" {
+		pkg = schema.Package
+	}
+	return pkg
+}
+
+func writeJavaGenerateHeader(buf *bytes.Buffer, schema *core.Schema) {
+	writeGenerateComment(buf, schema.Name)
+	pkg := getJavaPackage(schema)
+	buf.WriteString("package " + pkg + ";\n\n")
+}
+
+func withJavaPackageDir(fileName string, schema *core.Schema) string {
+	javaPackage := getJavaPackage(schema)
+	if javaPackage != "" {
+		return strings.ReplaceAll(javaPackage, ".", string(os.PathSeparator)) + string(os.PathSeparator) + fileName
+	}
+	return fileName
+}
+
+func mergeMotanOptions(context *core.Context) map[string]string {
+	options := make(map[string]string, len(core.MotanOptionsDefault))
+	for k, v := range core.MotanOptionsDefault {
+		options[k] = v
+	}
+	for k, v := range context.Options {
+		options[k] = v
+	}
+	return options
 }

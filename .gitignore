@@ -26,3 +26,4 @@ __*
 go.sum
 autoGenerate
 coverage.txt
+/auto_gen

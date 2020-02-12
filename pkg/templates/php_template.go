@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weibreeze/breeze-generator/core"
+	"github.com/weibreeze/breeze-generator/pkg/core"
 )
 
 var (
@@ -38,6 +38,11 @@ type PHPTemplate struct {
 //Name : template name
 func (pt *PHPTemplate) Name() string {
 	return Php
+}
+
+// PostAllGenerated: handler for all schema generated
+func (pt *PHPTemplate) PostAllGenerated(context *core.Context) error {
+	return nil
 }
 
 //GenerateCode : generate php code

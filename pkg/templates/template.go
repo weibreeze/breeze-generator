@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weibreeze/breeze-generator/core"
+	"github.com/weibreeze/breeze-generator/pkg/core"
 )
 
 //CodeTemplate names

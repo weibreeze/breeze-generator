@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weibreeze/breeze-generator/core"
+	"github.com/weibreeze/breeze-generator/pkg/core"
 )
 
 var (
@@ -33,6 +33,10 @@ type CppTemplate struct{}
 
 func (ct *CppTemplate) Name() string {
 	return Cpp
+}
+
+func (ct *CppTemplate) PostAllGenerated(context *core.Context) error {
+	return nil
 }
 
 func (ct *CppTemplate) GenerateCode(schema *core.Schema, context *core.Context) (contents map[string][]byte, err error) {

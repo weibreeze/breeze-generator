@@ -1,5 +1,5 @@
 option java_package = com.weibo.breeze.demo;
-//option with_package_dir = true;
+option with_package_dir = true;
 package motan;
 
 message TestMsg{
@@ -36,4 +36,8 @@ enum MyEnum{
 service DemoService{
 	hello(TestMsg hello, map<int, map<string, array<string>>> param2, string param3)bool;
 	getByName(string param1)TestMsg;
+}
+
+service GreeterService {
+    sayHello(string hello) string;
 }
