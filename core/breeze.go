@@ -45,6 +45,7 @@ var (
 	Int64Type   = &Type{Number: Int64, TypeString: "int64"}
 	Float32Type = &Type{Number: Float32, TypeString: "float32"}
 	Float64Type = &Type{Number: Float64, TypeString: "float64"}
+	MessageType = &Type{Number: Msg, TypeString: "message"}
 )
 
 //Parser can parse breeze schema from binary with context.
