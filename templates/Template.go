@@ -18,6 +18,7 @@ const (
 	Java = "java"
 	Go   = "go"
 	Cpp  = "cpp"
+	Lua  = "lua"
 )
 
 var (
@@ -26,6 +27,7 @@ var (
 		Java: &JavaTemplate{},
 		Go:   &GoTemplate{},
 		Cpp:  &CppTemplate{},
+		Lua:  &LuaTemplate{},
 	}
 )
 
