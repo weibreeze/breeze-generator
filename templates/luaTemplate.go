@@ -79,31 +79,100 @@ func (lt *LuaTemplate) GenerateCode(schema *core.Schema, context *core.Context) 
 	return contents, nil
 }
 
+func getWriteFieldElemString(t *core.Type,
+	ivalueStr,inKeyStr, inValueStr string) (res string) {
+	switch t.Number {
+	case core.Array:
+		elemTypeStr := "brz_w.write_" + t.ValueType.TypeString + "_type(fbuf)"
+		elemStr := getWriteFieldElemString(t.ValueType,
+			inValueStr, "i_value_k", "i_value_v")
+		res = `
+                    brz_w.write_packed_array(fbuf, false, #` + ivalueStr + `, function(fbuf)
+                        ` + elemTypeStr + `
+                        for ` + inKeyStr + `,` + inValueStr + ` in ipairs(` + ivalueStr + `) do
+                            ` + elemStr + `
+                        end
+                    end)
+`
+	case core.Map:
+		keyTypeStr := "brz_w.write_" + t.KeyType.TypeString + "_type(fbuf)"
+		valueTypeStr := "brz_w.write_" + t.ValueType.TypeString + "_type(fbuf)"
+		keyStr := getWriteFieldElemString(t.KeyType,
+			inKeyStr, "i_key_k", "i_key_v")
+		valueStr := getWriteFieldElemString(t.ValueType,
+			inValueStr,"i_value_k", "i_value_v")
+		res = `
+                    brz_w.write_packed_map(fbuf, false, #v, function(fbuf)
+                        ` + keyTypeStr + `
+                        ` + valueTypeStr + `
+                        for ` + inKeyStr + `, ` + inValueStr + ` in ipairs(` + ivalueStr + `) do
+                            ` + keyStr + `
+                            ` + valueStr + `
+                        end
+                    end)
+`
+	case core.Msg:
+		res = ivalueStr + ":write_to(fbuf)"
+	default:
+		res = "brz_w.write_" + t.TypeString + "(fbuf, " + ivalueStr + ", false)"
+	}
+	return
+}
+
 func getWriteFieldString(field *core.Field) (res string) {
 	switch field.Type.Number {
 	case core.Array:
+		elemTypeStr := ""
+		if field.Type.ValueType.Number == core.Msg {
+			elemTypeStr = `
+                local mt_v = self.` + field.Name + `[1]
+                brz_w.write_message_type(fbuf, mt_v:get_name())
+`
+		} else {
+			elemTypeStr = `brz_w.write_` + luaTypes[field.Type.ValueType.Number].schemaTypeString + `_type(fbuf)`
+		}
+		elemStr := getWriteFieldElemString(field.Type.ValueType, "v", "v_k", "v_v")
 		res = `
         local ` + field.Name + `_size = #self.` + field.Name + `
         if ` + field.Name + `_size > 0 then
-            brz_w.write_array_field(fbuf, ` + strconv.Itoa(field.Index) + `, ` + field.Name + `_size, function(fbuf)
-                brz_w.write_` + field.Type.ValueType.TypeString + `_array_elems(fbuf, self.` + field.Name + `)
+            brz_w.write_packed_array_field(fbuf, ` + strconv.Itoa(field.Index) + `, ` + field.Name + `_size, function(fbuf)
+                ` + elemTypeStr + `
+                for _, v in ipairs(self.` + field.Name + `) do
+                    ` + elemStr + `
+                end
             end)
         end
 `
 	case core.Map:
+		keyTypeStr := `brz_w.write_` + luaTypes[field.Type.KeyType.Number].schemaTypeString + `_type(fbuf)`
+		valueTypeStr := ""
+		if field.Type.ValueType.Number == core.Msg {
+			valueTypeStr = `
+                local _, mt_v = next(self.` + field.Name + `)
+                brz_w.write_message_type(fbuf, mt_v:get_name())
+`
+		} else {
+			valueTypeStr = `brz_w.write_` + luaTypes[field.Type.ValueType.Number].schemaTypeString + `_type(fbuf)`
+		}
+		keyStr := getWriteFieldElemString(field.Type.KeyType, "k", "kk", "kv")
+		valueStr := getWriteFieldElemString(field.Type.ValueType, "v", "vk", "vv")
 		res = `
         local ` + field.Name + `_size = brz_tools.arr_size(self.` + field.Name + `)
         if ` + field.Name + `_size > 0 then
-            brz_w.write_map_field(fbuf, 9, ` + field.Name + `_size, function(fbuf)
-                brz_w.write_` + luaTypes[field.Type.KeyType.Number].schemaTypeString + `_type(fbuf)
-                brz_w.write_` + luaTypes[field.Type.ValueType.Number].schemaTypeString + `_type(fbuf)
+            brz_w.write_packed_map_field(fbuf, ` + strconv.Itoa(field.Index) + `, ` + field.Name + `_size, function(fbuf)
+                ` + keyTypeStr + `
+                ` + valueTypeStr + `
                 for k,v in pairs(self.` + field.Name + `) do
-                    brz_w.write_` + luaTypes[field.Type.KeyType.Number].schemaTypeString + `(fbuf, k, false)
-                    brz_w.write_` + luaTypes[field.Type.ValueType.Number].schemaTypeString + `(fbuf, false, #v, function(fbuf)
-                        v:write_to(fbuf)
-                    end)
+                    ` + keyStr + `
+                    ` + valueStr + `
                 end
             end)
+        end
+`
+	case core.Msg:
+		res = `
+        if self.` + field.Name + ` ~= nil then
+            brz_w.write_message_field(fbuf, ` + strconv.Itoa(field.Index) + `, self.` + field.Name + `)
         end
 `
 	default:
@@ -216,7 +285,7 @@ local _M_mt = {__index = _M}
 	// const
 	enumValue := sortEnumValues(message)
 	for _, value := range enumValue {
-		buf.WriteString("local " + value.Name + " = " + strconv.Itoa(value.Index) + ";\n")
+		buf.WriteString("local " + value.Name + " = " + strconv.Itoa(value.Index) + "\n")
 	}
 
 	msgName := schema.OrgPackage + "." + message.Name
