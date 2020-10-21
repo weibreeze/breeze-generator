@@ -89,7 +89,7 @@ func parseSchemaWithPath(path string, context *core.Context) error {
 
 	if fi.IsDir() {
 		var fileInfo []os.FileInfo
-		fileInfo, err = ioutil.ReadDir(fi.Name())
+		fileInfo, err = ioutil.ReadDir(path)
 		if err == nil {
 			path = addSeparator(path)
 			for _, info := range fileInfo {
