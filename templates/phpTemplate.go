@@ -29,7 +29,7 @@ var (
 type phpTypeInfo struct {
 	useString  string
 	descString string
-}pwd
+}
 
 //PHPTemplate : can generate php code according to schema
 type PHPTemplate struct {
@@ -161,7 +161,7 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 
 	//end of class
 	buf.WriteString("}\n")
-	return withPackageDir(message.Name, schema, context) + ".php", buf.Bytes(), nil
+	return withPackageDir(message.Name, schema, context, true) + ".php", buf.Bytes(), nil
 }
 
 func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
@@ -219,7 +219,7 @@ func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, 
 
 	//end of class
 	buf.WriteString("}\n")
-	return withPackageDir(message.Name, schema, context) + ".php", buf.Bytes(), nil
+	return withPackageDir(message.Name, schema, context, true) + ".php", buf.Bytes(), nil
 }
 
 func (pt *PHPTemplate) getTypeImport(tp *core.Type, tps []string) []string {
@@ -284,13 +284,5 @@ func (pt *PHPTemplate) generateMotanClient(schema *core.Schema, service *core.Se
 }
 
 func (pt *PHPTemplate) getNamespace(pkg string) string {
-	items := strings.Split(pkg, ".")
-	if len(items) == 0 {
-		return ""
-	}
-	var ns string
-	for _, item := range items {
-		ns = ns + firstUpper(item) + "\\"
-	}
-	return ns[:len(ns)-1]
+	return toCamelCase(pkg, "\\")
 }
