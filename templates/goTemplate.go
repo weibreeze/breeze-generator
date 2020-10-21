@@ -108,7 +108,7 @@ func (gt *GoTemplate) GenerateCode(schema *core.Schema, context *core.Context) (
 			fileName = fileName[index+1:]
 		}
 	}
-	fileName = withPackageDir(fileName, schema)
+	fileName = withPackageDir(fileName, schema, context)
 	contents[fileName+".go"] = content.Bytes()
 	return contents, nil
 }

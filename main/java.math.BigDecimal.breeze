@@ -1,0 +1,6 @@
+// schema of java.math.BigDecimal
+option java_package = java.math;
+package java.math;
+message BigDecimal{
+    string numberString = 1;
+}

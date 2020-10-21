@@ -29,7 +29,7 @@ var (
 type phpTypeInfo struct {
 	useString  string
 	descString string
-}
+}pwd
 
 //PHPTemplate : can generate php code according to schema
 type PHPTemplate struct {
@@ -154,14 +154,14 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 		upperFieldName := firstUpper(field.Name)
 		buf.WriteString("    public function get" + upperFieldName + "() { return $this->" + field.Name + "; }\n\n")
 		buf.WriteString("    public function set" + upperFieldName + "($value) {\n        if (Breeze::$CHECK_VALUE && !self::$_" + field.Name + "Type->checkType($value)) {\n")
-		buf.WriteString("            throw new BreezeException('check type fail. method:' . $this->getName() . '->set" + upperFieldName + "');\n        }\n")
+		buf.WriteString("            throw new BreezeException('check type fail. method:' . $this->schema()->getName() . '->set" + upperFieldName + "');\n        }\n")
 		buf.WriteString("        $this->" + field.Name + " = $value;\n        return $this;\n    }\n\n")
 	}
 	buf.Truncate(buf.Len() - 1)
 
 	//end of class
 	buf.WriteString("}\n")
-	return withPackageDir(message.Name, schema) + ".php", buf.Bytes(), nil
+	return withPackageDir(message.Name, schema, context) + ".php", buf.Bytes(), nil
 }
 
 func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
@@ -219,7 +219,7 @@ func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, 
 
 	//end of class
 	buf.WriteString("}\n")
-	return withPackageDir(message.Name, schema) + ".php", buf.Bytes(), nil
+	return withPackageDir(message.Name, schema, context) + ".php", buf.Bytes(), nil
 }
 
 func (pt *PHPTemplate) getTypeImport(tp *core.Type, tps []string) []string {

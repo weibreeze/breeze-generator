@@ -1,0 +1,6 @@
+// schema of java.sql.Timestamp
+option java_package = java.sql;
+package java.sql;
+message Timestamp{
+    int64 time = 1;
+}

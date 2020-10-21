@@ -1,0 +1,6 @@
+// schema of java.math.BigInteger
+option java_package = java.math;
+package java.math;
+message BigInteger{
+    string numberString = 1;
+}
