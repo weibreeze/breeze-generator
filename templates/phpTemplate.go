@@ -152,9 +152,18 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 	//getter and setter
 	for _, field := range fields {
 		upperFieldName := firstUpper(field.Name)
-		buf.WriteString("    public function get" + upperFieldName + "() { return $this->" + field.Name + "; }\n\n")
+		// int, float, bool对象未赋值时，get方法返回默认值，与其他语言对齐。
+		if field.Type.Number == core.BoolType.Number {
+			buf.WriteString("    public function get" + upperFieldName + "()\n    {\n        if (is_null($this->" + field.Name + ")) {\n            return false;\n        }\n        return $this->" + field.Name + "; }\n\n")
+		} else if (field.Type.Number == core.Int16Type.Number) || (field.Type.Number == core.Int32Type.Number) || (field.Type.Number == core.Int64Type.Number) {
+			buf.WriteString("    public function get" + upperFieldName + "()\n    {\n        if (is_null($this->" + field.Name + ")) {\n            return 0;\n        }\n        return $this->" + field.Name + "; }\n\n")
+		} else if (field.Type.Number == core.Float32Type.Number) || (field.Type.Number == core.Float64Type.Number) {
+			buf.WriteString("    public function get" + upperFieldName + "()\n    {\n        if (is_null($this->" + field.Name + ")) {\n            return 0.0;\n        }\n        return $this->" + field.Name + "; }\n\n")
+		} else {
+			buf.WriteString("    public function get" + upperFieldName + "() { return $this->" + field.Name + "; }\n\n")
+		}
 		buf.WriteString("    public function set" + upperFieldName + "($value) {\n        if (Breeze::$CHECK_VALUE && !self::$_" + field.Name + "Type->checkType($value)) {\n")
-		buf.WriteString("            throw new BreezeException('check type fail. method:' . $this->schema()->getName() . '->set" + upperFieldName + "');\n        }\n")
+		buf.WriteString("            throw new BreezeException('check type fail. method:" + message.Name + "->set" + upperFieldName + "');\n        }\n")
 		buf.WriteString("        $this->" + field.Name + " = $value;\n        return $this;\n    }\n\n")
 	}
 	buf.Truncate(buf.Len() - 1)
