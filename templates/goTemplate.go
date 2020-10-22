@@ -8,8 +8,6 @@ import (
 	"github.com/weibreeze/breeze-generator/core"
 )
 
-const GoPackagePrefix = "go_package_prefix"
-
 var (
 	goTypes = map[int]*goTypeInfo{
 		core.Bool:    {typeString: "bool", writeTypeString: "breeze.WriteBool", readTypeString: "breeze.ReadBool"},
@@ -116,7 +114,9 @@ func (gt *GoTemplate) GenerateCode(schema *core.Schema, context *core.Context) (
 func (gt *GoTemplate) generateMessage(schema *core.Schema, message *core.Message, context *core.Context, buf *bytes.Buffer, importStr []string) ([]string, error) {
 	buf.WriteString("type " + message.Name + " struct {\n")
 	fields := sortFields(message) //sorted fields
+	var tps []string
 	for _, field := range fields {
+		importStr =append(importStr,gt.getTypeImport(field.Type,tps, context)...)
 		buf.WriteString("	" + firstUpper(field.Name) + " " + gt.getTypeString(field.Type) + "\n")
 	}
 	buf.WriteString("}\n\n")
@@ -456,7 +456,7 @@ func (gt *GoTemplate) getTypeImport(tp *core.Type, tps []string, context *core.C
 		if index > -1 { //not same package
 			prefix := ""
 			if context.Options != nil {
-				prefix = context.Options[GoPackagePrefix]
+				prefix = context.Options[core.GoPackagePrefix]
 			}
 			tps = append(tps, prefix+strings.ReplaceAll(tp.Name[:index], ".", "/"))
 		}

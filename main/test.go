@@ -3,16 +3,16 @@ package main
 import (
 	"flag"
 	"fmt"
-
-	"github.com/weibreeze/breeze-generator/core"
-
 	"github.com/weibreeze/breeze-generator"
+	"github.com/weibreeze/breeze-generator/core"
 )
 var (
 	srcDir=""
+	goPkgPath=""
 )
 func main() {
 	flag.StringVar(&srcDir,"src","./main","breeze schema files path")
+	flag.StringVar(&goPkgPath,"gopkg","","project package path in $GOPATH")
 	flag.Parse()
 	testGenerateCode()
 }
@@ -20,10 +20,9 @@ func main() {
 func testGenerateCode() {
 	//parsers.UniformPackage = "motan" // set UniformPackage if you want all class in same package.
 	path := srcDir
-	//path := "./main/testmsg.breeze"
 	config := &generator.Config{WritePath: "./autoGenerate", CodeTemplates: "all", Options: make(map[string]string)}
-	//config.Options[templates.GoPackagePrefix] = "myproject/"
 	config.Options[core.WithPackageDir] = "true"
+	config.Options[core.GoPackagePrefix] = goPkgPath
 	result, err := generator.GeneratePath(path, config)
 	fmt.Printf("%v, %v\n", result, err)
 }
