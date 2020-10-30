@@ -1,0 +1,11 @@
+// schema of java.util.Date
+// option java_package = java2.util;
+package java2.util;
+message Date{
+    int64 time = 1;
+}
+
+enum MyEnum{
+    SUCCESS=1;
+    FAIL=2;
+}

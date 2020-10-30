@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"github.com/weibreeze/breeze-generator"
 	"github.com/weibreeze/breeze-generator/core"
+	"os"
 )
 var (
 	srcDir=""
 	goPkgPath=""
 )
 func main() {
+	os.RemoveAll("autoGenerate")
 	flag.StringVar(&srcDir,"src","./main","breeze schema files path")
 	flag.StringVar(&goPkgPath,"gopkg","","project package path in $GOPATH")
 	flag.Parse()
