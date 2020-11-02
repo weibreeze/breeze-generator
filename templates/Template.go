@@ -108,10 +108,18 @@ func sortUnique(a []string) []string {
 }
 
 func firstUpper(s string) string {
+	// fix: none package in breeze, s is empty
+	if s==""{
+		return ""
+	}
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 func firstLower(s string) string {
+	// fix: none package in breeze, s is empty
+	if s==""{
+		return ""
+	}
 	return strings.ToLower(s[:1]) + s[1:]
 }
 

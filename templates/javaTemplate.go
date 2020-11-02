@@ -136,7 +136,10 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	if pkg == "" {
 		pkg = schema.Package
 	}
-	buf.WriteString("package " + pkg + ";\n\n")
+	// fix: none package in breeze, pkg is empty
+	if pkg!=""{
+		buf.WriteString("package " + pkg + ";\n\n")
+	}
 	//import
 	buf.WriteString("import com.weibo.breeze.*;\nimport com.weibo.breeze.message.Message;\nimport com.weibo.breeze.message.Schema;\nimport com.weibo.breeze.type.BreezeType;\n\n")
 

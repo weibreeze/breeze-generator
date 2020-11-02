@@ -78,7 +78,11 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 	buf := &bytes.Buffer{}
 	buf.WriteString("<?php\n")
 	writeGenerateComment(buf, schema.Name)
-	buf.WriteString("namespace " + pt.getNamespace(schema.Package) + ";\n\n")
+	// fix : none package in breeze
+	ns:= pt.getNamespace(schema.Package)
+	if ns!=""{
+		buf.WriteString("namespace " +ns+ ";\n\n")
+	}
 	buf.WriteString("use Breeze\\Breeze;\nuse Breeze\\BreezeException;\nuse Breeze\\BreezeReader;\nuse Breeze\\BreezeWriter;\nuse Breeze\\Buffer;\nuse Breeze\\FieldDesc;\nuse Breeze\\Message;\nuse Breeze\\Schema;\n")
 
 	fields := sortFields(message)
@@ -293,5 +297,9 @@ func (pt *PHPTemplate) generateMotanClient(schema *core.Schema, service *core.Se
 }
 
 func (pt *PHPTemplate) getNamespace(pkg string) string {
+	// fix: none package in breeze
+	if pkg==""{
+		return ""
+	}
 	return toCamelCase(pkg, "\\")
 }
