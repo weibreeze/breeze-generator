@@ -37,9 +37,6 @@ func main() {
 	}
 	switch command {
 	case "gen":
-		if *p2b_src == "" {
-			return
-		}
 		config := &generator.Config{WritePath: *gen_dest, CodeTemplates: *gen_typ, Options: make(map[string]string)}
 		config.Options[core.WithPackageDir] = "true"
 		if *gen_go_pkg != "" {
