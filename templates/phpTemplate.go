@@ -78,7 +78,11 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 	buf := &bytes.Buffer{}
 	buf.WriteString("<?php\n")
 	writeGenerateComment(buf, schema.Name)
-	buf.WriteString("namespace " + pt.getNamespace(schema.Package) + ";\n\n")
+	// fix : none package in breeze
+	ns:= pt.getNamespace(schema.Package)
+	if ns!=""{
+		buf.WriteString("namespace " +ns+ ";\n\n")
+	}
 	buf.WriteString("use Breeze\\Breeze;\nuse Breeze\\BreezeException;\nuse Breeze\\BreezeReader;\nuse Breeze\\BreezeWriter;\nuse Breeze\\Buffer;\nuse Breeze\\FieldDesc;\nuse Breeze\\Message;\nuse Breeze\\Schema;\n")
 
 	fields := sortFields(message)
@@ -152,16 +156,25 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 	//getter and setter
 	for _, field := range fields {
 		upperFieldName := firstUpper(field.Name)
-		buf.WriteString("    public function get" + upperFieldName + "() { return $this->" + field.Name + "; }\n\n")
+		// int, float, bool对象未赋值时，get方法返回默认值，与其他语言对齐。
+		if field.Type.Number == core.BoolType.Number {
+			buf.WriteString("    public function get" + upperFieldName + "()\n    {\n        if (is_null($this->" + field.Name + ")) {\n            return false;\n        }\n        return $this->" + field.Name + "; }\n\n")
+		} else if (field.Type.Number == core.Int16Type.Number) || (field.Type.Number == core.Int32Type.Number) || (field.Type.Number == core.Int64Type.Number) {
+			buf.WriteString("    public function get" + upperFieldName + "()\n    {\n        if (is_null($this->" + field.Name + ")) {\n            return 0;\n        }\n        return $this->" + field.Name + "; }\n\n")
+		} else if (field.Type.Number == core.Float32Type.Number) || (field.Type.Number == core.Float64Type.Number) {
+			buf.WriteString("    public function get" + upperFieldName + "()\n    {\n        if (is_null($this->" + field.Name + ")) {\n            return 0.0;\n        }\n        return $this->" + field.Name + "; }\n\n")
+		} else {
+			buf.WriteString("    public function get" + upperFieldName + "() { return $this->" + field.Name + "; }\n\n")
+		}
 		buf.WriteString("    public function set" + upperFieldName + "($value) {\n        if (Breeze::$CHECK_VALUE && !self::$_" + field.Name + "Type->checkType($value)) {\n")
-		buf.WriteString("            throw new BreezeException('check type fail. method:' . $this->getName() . '->set" + upperFieldName + "');\n        }\n")
+		buf.WriteString("            throw new BreezeException('check type fail. method:" + message.Name + "->set" + upperFieldName + "');\n        }\n")
 		buf.WriteString("        $this->" + field.Name + " = $value;\n        return $this;\n    }\n\n")
 	}
 	buf.Truncate(buf.Len() - 1)
 
 	//end of class
 	buf.WriteString("}\n")
-	return withPackageDir(message.Name, schema) + ".php", buf.Bytes(), nil
+	return withPackageDir(message.Name, schema, context, true) + ".php", buf.Bytes(), nil
 }
 
 func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
@@ -219,7 +232,7 @@ func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, 
 
 	//end of class
 	buf.WriteString("}\n")
-	return withPackageDir(message.Name, schema) + ".php", buf.Bytes(), nil
+	return withPackageDir(message.Name, schema, context, true) + ".php", buf.Bytes(), nil
 }
 
 func (pt *PHPTemplate) getTypeImport(tp *core.Type, tps []string) []string {
@@ -284,13 +297,9 @@ func (pt *PHPTemplate) generateMotanClient(schema *core.Schema, service *core.Se
 }
 
 func (pt *PHPTemplate) getNamespace(pkg string) string {
-	items := strings.Split(pkg, ".")
-	if len(items) == 0 {
+	// fix: none package in breeze
+	if pkg==""{
 		return ""
 	}
-	var ns string
-	for _, item := range items {
-		ns = ns + firstUpper(item) + "\\"
-	}
-	return ns[:len(ns)-1]
+	return toCamelCase(pkg, "\\")
 }

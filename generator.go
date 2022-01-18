@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 
@@ -89,7 +91,7 @@ func parseSchemaWithPath(path string, context *core.Context) error {
 
 	if fi.IsDir() {
 		var fileInfo []os.FileInfo
-		fileInfo, err = ioutil.ReadDir(fi.Name())
+		fileInfo, err = ioutil.ReadDir(path)
 		if err == nil {
 			path = addSeparator(path)
 			for _, info := range fileInfo {
@@ -204,4 +206,91 @@ func addSeparator(path string) string {
 		path += string(os.PathSeparator)
 	}
 	return path
+}
+
+// ProtoToBreeze converts protobuf .proto file to .breeze file.
+func ProtoToBreeze(srcDir, destDir string) (err error) {
+	os.MkdirAll(destDir, 0777)
+	fs, err := filepath.Glob(filepath.Join(srcDir, "*.proto"))
+	if err != nil {
+		return
+	}
+	for _, f := range fs {
+		txt, _ := ioutil.ReadFile(f)
+		_,name:=filepath.Split(f)
+		name=strings.TrimSuffix(name,filepath.Ext(name))
+		destFile := filepath.Join(destDir, name) + ".breeze"
+		err=ioutil.WriteFile(destFile, []byte(protoToBreeze(string(txt))),0755)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
+func protoToBreeze(txt string) string {
+	reg := [][]string{
+		{"extend[^{}]+\\{[^{}]+\\}", ""},    // trim extend section
+		{"oneof[^{}]+\\{[^{}]+\\}", ""},     // trim oneof section
+		{"\t", "    "},                     // convert \t to 4 spaces
+		{"//.*\\n*", "\n"},                 // trim comment
+		{" *rpc +", "    "},            	// trim service rpc
+		{"\\) *returns *\\(([^()]+)\\) *;", " request)${1};"}, // trim service rpc
+		{"import .*\\n", ""},               // trim import line
+		{"required +", ""},                 // trim required line
+		{"optional +", ""},                 // trim optional line
+		{"syntax[^\\n]+\\n?", ""},          // trim syntax line
+		{"repeated[^\\n]+\\n?", ""},        // trim repeated line
+		{"singular[^\\n]+\\n?", ""},        // trim singular line
+		{"extensions[^;]+;\\n?", ""},       // trim extensions line
+		{"\\[[^[\\n]+;", ";"},              // trim [pack=true];
+		{"\\n {2,}", "\n    "},             // convert space > 2 to 4 spaces
+		{"^\\n+", ""},                      // trim multiple \n in file start
+		{"\\n+", "\n"},                     // trim multiple \n
+		{"([\\d]) +;", "$1;"},              // trim space between "index" and ";"
+		{"double +", "float64 "},           // double map to float64
+		{"float +", "float32 "},            // float map to float32
+		{"uint32 +", "int64 "},             // uint32 map to int64
+		{"uint64 +", "int64 "},             // uint64 map to int64
+		{"sint32 +", "int32 "},             // sint32 map to int32
+		{"sint64 +", "int64 "},             // sint64 map to int64
+		{"fixed32 +", "int64 "},            // fixed32 map to int64
+		{"fixed64 +", "int64 "},            // fixed64 map to int64
+		{"sfixed32 +", "int32 "},           // sfixed32 map to int32
+		{"sfixed64 +", "int64 "},           // sfixed64 map to int64
+		{"(\\n?) *message", "${1}message"}, // message empty start
+		{" *}(\\n?)", "}$1"},               // } empty end
+		{" *\\n", "\n"},                    // empty end
+		{"\\n *\\n", "\n"},                 // empty line
+	}
+	for _, v := range reg {
+		r, _ := regexp.Compile(v[0])
+		txt = r.ReplaceAllString(txt, v[1])
+	}
+	openCnt := 0
+	closeCnt := 0
+	var lines []string
+	for _, line := range strings.Split(txt, "\n") {
+		if openCnt == 0 && strings.HasPrefix(line, "option") {
+			if strings.Contains(line, "go_package") && !strings.Contains(line, "go_package_prefix") {
+				line = strings.Replace(line, "go_package", "go_package_prefix", 1)
+			} else if !strings.Contains(line, "java_package") {
+				continue
+			}
+		}
+		//option go_package = "google.golang.org/protobuf/types/descriptorpb";
+		if strings.HasSuffix(line, "{") {
+			openCnt++
+		} else if strings.HasSuffix(line, "}") {
+			closeCnt++
+		}
+		if openCnt != closeCnt && openCnt > 1 {
+			continue
+		}
+		lines = append(lines, line)
+		if openCnt == closeCnt {
+			openCnt, closeCnt = 0, 0
+		}
+	}
+	return strings.Join(lines, "\n")
 }

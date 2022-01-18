@@ -1,0 +1,72 @@
+// schema of java.util.Date
+option java_package = java.util;
+package java.util;
+message Date2{
+    bool d1001 = 1001;
+    byte d1002 = 1002;
+    bytes d1003 = 1003;
+    float32 d1004 = 1004;
+    float64 d1005 = 1005;
+    int32 d1006 = 1006;
+    int64 d1 = 1;
+    string d1007 = 1007;
+    java1.util.Date d2 = 2;
+    java.util.Date d3 = 3;
+    Date d33 = 33;
+    java2.util.Date d4 = 4;
+
+    map<string, int64> d5 = 5;
+    map<string, java2.util.Date> d6 = 6;
+    map<string, Date> d61 = 61;
+    map<string, java.util.Date> d62 = 62;
+    map<string, array<java1.util.Date>> d7 = 7;
+    map<string, array<java.util.Date>> d71 = 71;
+    map<string, array<Date>> d72 = 72;
+    map<string, array<int64>> d8 = 8;
+    map<string, map<string, java2.util.Date>> d9 = 9;
+    map<string, map<string, java.util.Date>> d91 = 91;
+    map<string, map<string, Date>> d92 = 92;
+    map<string, map<string, int64>> d10 = 10;
+
+    array<int64> d11 = 11;
+    array<java1.util.Date> d12 = 12;
+    array<Date> d122 = 122;
+    array<java.util.Date> d123 = 123;
+    array<array<int64>> d13 = 13;
+    array<array<java1.util.Date>> d14 = 14;
+    array<array<java.util.Date>> d141 = 141;
+    array<array<Date>> d142 = 142;
+
+    array<map<string, java2.util.Date>> d15 = 15;
+    array<map<string, java.util.Date>> d151 = 151;
+    array<map<string, Date>> d152 = 152;
+    array<map<string, int64>> d16 = 16;
+    array<map<string, array<java1.util.Date>>> d17 = 17;
+    array<map<string, array<Date>>> d171 = 171;
+    array<map<string, array<java.util.Date>>> d172 = 172;
+    array<map<string, array<int64>>> d18 = 18;
+    array<map<string, map<string, java2.util.Date>>> d19 = 19;
+    array<map<string, map<string, Date>>> d191 = 191;
+    array<map<string, map<string, java.util.Date>>> d192 = 192;
+    array<map<string, map<string, int64>>> d20 = 20;
+
+    MyEnum d21 = 21;
+    array<java.util.MyEnum> d22 = 22;
+    array<array<MyEnum>> d23 = 23;
+    map<string, MyEnum> d24 = 24;
+    map<string, array<MyEnum>> d25 = 25;
+    map<string, map<string, MyEnum>> d26 = 26;
+
+    java2.util.MyEnum d27 = 27;
+    array<java2.util.MyEnum> d28 = 28;
+    array<array<java2.util.MyEnum>> d29 = 29;
+    map<string, java2.util.MyEnum> d30 = 30;
+    map<string, array<java2.util.MyEnum>> d31 = 31;
+    map<string, map<string, java2.util.MyEnum>> d32 = 32;
+
+}
+
+enum MyEnum{
+    SUCCESS=1;
+    FAIL=2;
+}

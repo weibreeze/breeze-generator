@@ -23,9 +23,10 @@ const (
 
 //option keys
 const (
-	JavaPackage    = "java_package"
-	WithPackageDir = "with_package_dir"
-	Alias          = "alias"
+	JavaPackage     = "java_package"
+	WithPackageDir  = "with_package_dir"
+	Alias           = "alias"
+	GoPackagePrefix = "go_package_prefix"
 )
 
 //rpc type

@@ -26,3 +26,7 @@ __*
 go.sum
 autoGenerate
 coverage.txt
+
+/mian/tests
+
+.test_*

@@ -126,7 +126,7 @@ func (jt *JavaTemplate) generateEnum(schema *core.Schema, message *core.Message,
 
 	//interface methods
 	buf.WriteString("        @Override\n        public String[] getNames() { return names; }\n    }\n}\n")
-	return withPackageDir(message.Name, schema) + ".java", buf.Bytes(), nil
+	return withPackageDir(message.Name, schema, context, false) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
@@ -136,7 +136,10 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	if pkg == "" {
 		pkg = schema.Package
 	}
-	buf.WriteString("package " + pkg + ";\n\n")
+	// fix: none package in breeze, pkg is empty
+	if pkg!=""{
+		buf.WriteString("package " + pkg + ";\n\n")
+	}
 	//import
 	buf.WriteString("import com.weibo.breeze.*;\nimport com.weibo.breeze.message.Message;\nimport com.weibo.breeze.message.Schema;\nimport com.weibo.breeze.type.BreezeType;\n\n")
 
@@ -223,7 +226,7 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	buf.Truncate(buf.Len() - 1)
 	buf.WriteString("}\n")
 
-	return withPackageDir(message.Name, schema) + ".java", buf.Bytes(), nil
+	return withPackageDir(message.Name, schema, context, false) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) getTypeImport(tp *core.Type, context *core.Context, tps []string) []string {

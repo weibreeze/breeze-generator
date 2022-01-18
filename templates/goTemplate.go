@@ -2,13 +2,14 @@ package templates
 
 import (
 	"bytes"
+	"crypto/md5"
+	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/weibreeze/breeze-generator/core"
 )
-
-const GoPackagePrefix = "go_package_prefix"
 
 var (
 	goTypes = map[int]*goTypeInfo{
@@ -108,16 +109,86 @@ func (gt *GoTemplate) GenerateCode(schema *core.Schema, context *core.Context) (
 			fileName = fileName[index+1:]
 		}
 	}
-	fileName = withPackageDir(fileName, schema)
+	fileName = withPackageDir(fileName, schema, context, false)
 	contents[fileName+".go"] = content.Bytes()
 	return contents, nil
 }
 
+var (
+	aliasImprotNameData = map[string]string{}
+	hashCounter         = 0
+)
+
+func (gt *GoTemplate) getAliasImprotName(schema *core.Schema, importStr string, context *core.Context) string {
+	hint := filepath.Base(filepath.Dir(importStr)) + "_" + filepath.Base(importStr)
+	hash := ""
+	for k, v := range aliasImprotNameData {
+		if v == importStr {
+			return fmt.Sprintf("p_%s_%s", k, hint)
+		}
+	}
+
+	h := md5.New()
+	h.Write([]byte(importStr))
+	hash = fmt.Sprintf("%x", h.Sum(nil))[0:12]
+
+	if v, ok := aliasImprotNameData[hash]; !ok {
+		aliasImprotNameData[hash] = importStr
+	} else {
+		if v != importStr {
+			hash += fmt.Sprintf("%d", hashCounter)
+			hashCounter++
+		}
+	}
+
+	return fmt.Sprintf("p_%s_%s", hash, hint)
+}
+
+func (gt *GoTemplate) getImportInfo(field *core.Field, importStrArr []string, context *core.Context, schema *core.Schema) (importStr []string, typeString string) {
+	return gt.getImportInfoByType(field.Type, importStrArr, context, schema)
+}
+
+func (gt *GoTemplate) getImportInfoByType(tp *core.Type, importStrArr []string, context *core.Context, schema *core.Schema) (importStr []string, typeString string) {
+	typeString = gt.getTypeString(tp)
+	if strings.Contains(typeString, "*") {
+		if len(importStrArr) > 0 {
+			pkgPath := importStrArr[len(importStrArr)-1]
+			if strings.Replace(pkgPath, "/", ".", -1) != schema.Package {
+				aliasPkg := gt.getAliasImprotName(schema, pkgPath, context)
+				pkgPath = aliasPkg + " " + pkgPath
+				importStrArr[len(importStrArr)-1] = pkgPath
+				if strings.Contains(typeString, ".") {
+					prefix := typeString[:strings.Index(typeString, "*")]
+					suffix := typeString[strings.LastIndex(typeString, ".")+1:]
+					typeString = prefix + "*" + aliasPkg + "." + suffix
+				}
+			}
+		} else {
+			if strings.Contains(typeString,"."){
+				prefix:=typeString[:strings.Index(typeString,"*")+1]
+				suffix:=typeString[strings.LastIndex(typeString,".")+1:]
+				typeString =  prefix+suffix
+			}
+		}
+	}
+	if strings.HasPrefix(typeString, "**") {
+		typeString = typeString[1:]
+	} else if strings.HasPrefix(typeString, "*[]") {
+		typeString = typeString[1:]
+	}else if strings.HasPrefix(typeString, "*map") {
+		typeString = typeString[1:]
+	}
+	return importStrArr, typeString
+}
 func (gt *GoTemplate) generateMessage(schema *core.Schema, message *core.Message, context *core.Context, buf *bytes.Buffer, importStr []string) ([]string, error) {
 	buf.WriteString("type " + message.Name + " struct {\n")
 	fields := sortFields(message) //sorted fields
+	var tps []string
 	for _, field := range fields {
-		buf.WriteString("	" + firstUpper(field.Name) + " " + gt.getTypeString(field.Type) + "\n")
+		importStr0 := gt.getTypeImport(schema, field.Type, tps, context)
+		importStr0, typeString := gt.getImportInfo(field, importStr0, context, schema)
+		importStr = append(importStr, importStr0...)
+		buf.WriteString("	" + firstUpper(field.Name) + " " + typeString + "\n")
 	}
 	buf.WriteString("}\n\n")
 
@@ -168,6 +239,23 @@ func (gt *GoTemplate) generateMessage(schema *core.Schema, message *core.Message
 				gt.readMap(buf, tp, fieldName, 1, schema, context)
 			case core.Msg:
 				tpStr := gt.getTypeString(tp)[1:]
+				if strings.Contains(tp.TypeString, ".") {
+					s := strings.Replace(tp.TypeString, ".", "/", -1)
+					importStr := filepath.Dir(s)
+					basename := filepath.Base(s)
+					isInSelfPackage := strings.Replace(importStr, "/", ".", -1) == schema.Package
+					prefix := ""
+					if context.Options != nil {
+						prefix = context.Options[core.GoPackagePrefix]
+						prefix = strings.TrimSuffix(prefix, "/") + "/"
+						importStr = prefix + importStr
+					}
+					if !isInSelfPackage {
+						tpStr = gt.getAliasImprotName(schema, importStr, context) + "." + basename
+					} else {
+						tpStr = basename
+					}
+				}
 				if isEnum(field.Type, schema, context) {
 					buf.WriteString("			var value " + tpStr + "\n			result, err := breeze.ReadByEnum(buf, value, true)\n			if err == nil {\n")
 					buf.WriteString("				" + fieldName + " = result.(*" + tpStr + ")\n			}\n")
@@ -318,7 +406,14 @@ func (gt *GoTemplate) readMap(buf *bytes.Buffer, tp *core.Type, name string, rec
 	}
 	recStr := strconv.Itoa(recursion)
 	buf.WriteString(blank + "size, err := breeze.ReadPackedSize(buf, " + withType + ")\n" + blank + "if err != nil {\n" + blank + "	return err\n" + blank + "}\n")
-	buf.WriteString(blank + name + " " + assign + " make(" + gt.getTypeString(tp) + ", size)\n")
+	tpStr := gt.getTypeString(tp)
+	if strings.Contains(tpStr, ".") {
+		tps := []string{}
+		importStr0 := gt.getTypeImport(schema, tp, tps, context)
+		importStr0,typeString0:=gt.getImportInfoByType(tp, importStr0,context, schema)
+		tpStr=typeString0
+	}
+	buf.WriteString(blank + name + " " + assign + " make(" + tpStr + ", size)\n")
 	buf.WriteString(blank + "err = breeze.ReadPacked(buf, size, true, func(buf *breeze.Buffer) error {\n")
 	//read key
 	buf.WriteString(blank + "	k" + recStr + ", err := " + goTypes[tp.KeyType.Number].readTypeString + "WithoutType(buf)\n")
@@ -335,7 +430,7 @@ func (gt *GoTemplate) readMap(buf *bytes.Buffer, tp *core.Type, name string, rec
 		case core.Array:
 			gt.readArray(buf, tp.ValueType, vname, recursion+1, schema, context)
 		case core.Msg:
-			tpStr := gt.getTypeString(tp.ValueType)[1:]
+			tpStr:=tpStr[strings.Index(tpStr,"*")+1:]
 			if isEnum(tp.ValueType, schema, context) {
 				buf.WriteString(blank + "	var enum " + tpStr + "\n")
 				buf.WriteString(blank + "	result, err := enum.ReadEnum(buf, true)\n")
@@ -379,7 +474,15 @@ func (gt *GoTemplate) readArray(buf *bytes.Buffer, tp *core.Type, name string, r
 
 	recStr := strconv.Itoa(recursion)
 	buf.WriteString(blank + "size, err := breeze.ReadPackedSize(buf, " + withType + ")\n" + blank + "if err != nil {\n" + blank + "	return err\n" + blank + "}\n")
-	buf.WriteString(blank + name + " " + assign + " make(" + gt.getTypeString(tp) + ", 0, size)\n")
+
+	tpStr := gt.getTypeString(tp)
+	if strings.Contains(tpStr, ".") {
+		tps := []string{}
+		importStr0 := gt.getTypeImport(schema, tp, tps, context)
+		importStr0,typeString0:=gt.getImportInfoByType(tp, importStr0,context, schema)
+		tpStr=typeString0
+	}
+	buf.WriteString(blank + name + " " + assign + " make(" + tpStr + ", 0, size)\n")
 	buf.WriteString(blank + "err = breeze.ReadPacked(buf, size, false, func(buf *breeze.Buffer) error {\n")
 
 	//read value
@@ -393,7 +496,7 @@ func (gt *GoTemplate) readArray(buf *bytes.Buffer, tp *core.Type, name string, r
 		case core.Array:
 			gt.readArray(buf, tp.ValueType, vname, recursion+1, schema, context)
 		case core.Msg:
-			tpStr := gt.getTypeString(tp.ValueType)[1:]
+			tpStr:=tpStr[strings.Index(tpStr,"*")+1:]
 			if isEnum(tp.ValueType, schema, context) {
 				buf.WriteString(blank + "	var enum " + tpStr + "\n")
 				buf.WriteString(blank + "	result, err := enum.ReadEnum(buf, true)\n")
@@ -447,16 +550,16 @@ func (gt *GoTemplate) generateEnum(schema *core.Schema, message *core.Message, c
 	return importStr, nil
 }
 
-func (gt *GoTemplate) getTypeImport(tp *core.Type, tps []string, context *core.Context) []string {
+func (gt *GoTemplate) getTypeImport(schema *core.Schema, tp *core.Type, tps []string, context *core.Context) []string {
 	switch tp.Number {
 	case core.Array, core.Map: //only array or map value maybe contains message type
-		tps = gt.getTypeImport(tp.ValueType, tps, context)
+		tps = gt.getTypeImport(schema, tp.ValueType, tps, context)
 	case core.Msg:
 		index := strings.LastIndex(tp.Name, ".")
-		if index > -1 { //not same package
+		if index > -1 && tp.Name[:index] != schema.Package { //not same package
 			prefix := ""
 			if context.Options != nil {
-				prefix = context.Options[GoPackagePrefix]
+				prefix = context.Options[core.GoPackagePrefix]
 			}
 			tps = append(tps, prefix+strings.ReplaceAll(tp.Name[:index], ".", "/"))
 		}
@@ -519,7 +622,11 @@ func (gt *GoTemplate) writeGoImport(importStrs []string, buf *bytes.Buffer) {
 	}
 	buf.WriteString("\n")
 	for _, value := range sortUnique(out) {
-		buf.WriteString("	\"" + value + "\"\n")
+		if strings.Contains(value, " ") {
+			buf.WriteString("	" + strings.Replace(value, " ", " \"", 1) + "\"\n")
+		} else {
+			buf.WriteString("	\"" + value + "\"\n")
+		}
 	}
 	buf.WriteString(")\n\n")
 }
