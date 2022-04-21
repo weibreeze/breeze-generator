@@ -216,7 +216,7 @@ func (ct *CppTemplate) generateMethodReadFrom(message *core.Message, buf *bytes.
 				"				return breeze::read_value(buf, this->" + field.Name + ", true, 0, " + `""` + ");\n")
 		}
 		buf.WriteString("			default:\n" +
-			"				return -1;\n" +
+			"				return breeze::skip_value(buf); // skip unknown field\n" +
 			"		}\n" +
 			"	});\n")
 	}
@@ -228,7 +228,7 @@ func (ct *CppTemplate) generateMethodReadFrom(message *core.Message, buf *bytes.
 			"		if (index == 1) {\n" +
 			"			return breeze::read_value(buf, number, true, 0, " + `""` + ");\n" +
 			"		} else {\n" +
-			"			return -1;\n" +
+			"			return breeze::skip_value(buf); // skip unknown field\n" +
 			"		}\n" +
 			"	});\n" +
 			"	if (err != 0) {\n" +

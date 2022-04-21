@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,8 +96,20 @@ func sortMessages(schema *core.Schema) []*core.Message {
 	return messages
 }
 
+func sortMethods(service *core.Service) []*core.Method {
+	methods := make([]*core.Method, 0, len(service.Methods))
+	keys := make([]string, 0, len(service.Methods))
+	for key := range service.Methods {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		methods = append(methods, service.Methods[key])
+	}
+	return methods
+}
+
 func sortUnique(a []string) []string {
-	// TODO
 	m := make(map[string]bool, len(a))
 	for _, v := range a {
 		m[v] = true
@@ -122,8 +135,16 @@ func writeGenerateComment(buf *bytes.Buffer, schemaName string) {
 }
 
 func withPackageDir(fileName string, schema *core.Schema) string {
-	if schema.Options[core.WithPackageDir] != "" {
-		return strings.ReplaceAll(schema.Package, ".", string(os.PathSeparator)) + string(os.PathSeparator) + fileName
+	return withPackageDirByName(fileName, schema, "")
+}
+
+func withPackageDirByName(fileName string, schema *core.Schema, pkgName string) string {
+	b, _ := strconv.ParseBool(schema.Options[core.WithPackageDir])
+	if b {
+		if pkgName == "" {
+			pkgName = schema.Package
+		}
+		return strings.ReplaceAll(pkgName, ".", string(os.PathSeparator)) + string(os.PathSeparator) + fileName
 	}
 	return fileName
 }
