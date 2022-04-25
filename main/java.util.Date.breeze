@@ -1,0 +1,6 @@
+// schema of java.util.Date
+option java_package = java.util;
+package java.util;
+message Date{
+    int64 time = 1;
+}

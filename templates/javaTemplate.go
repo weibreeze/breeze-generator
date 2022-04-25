@@ -130,14 +130,19 @@ func (jt *JavaTemplate) generateEnum(schema *core.Schema, message *core.Message,
 
 	//interface methods
 	buf.WriteString("        @Override\n        public String[] getNames() { return names; }\n    }\n}\n")
-	return withPackageDirByName(message.Name, schema, pkg) + ".java", buf.Bytes(), nil
+	return withPackageDirByName(message.Name, schema, pkg, false) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
 	buf := &bytes.Buffer{}
 	writeGenerateComment(buf, schema.Name)
+
 	pkg := getJavaPkg(schema)
-	buf.WriteString("package " + pkg + ";\n\n")
+	// fix: none package in breeze, pkg is empty
+	if pkg != "" {
+		buf.WriteString("package " + pkg + ";\n\n")
+	}
+
 	fields := sortFields(message) //sorted fields
 
 	//import
@@ -237,7 +242,7 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	buf.Truncate(buf.Len() - 1)
 	buf.WriteString("}\n")
 
-	return withPackageDirByName(message.Name, schema, pkg) + ".java", buf.Bytes(), nil
+	return withPackageDirByName(message.Name, schema, pkg, false) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) getTypeImport(tp *core.Type, context *core.Context, tps []string) []string {
@@ -321,7 +326,7 @@ func (jt *JavaTemplate) generateService(schema *core.Schema, service *core.Servi
 	if isImpl {
 		fileName += "Impl"
 	}
-	return withPackageDirByName(fileName, schema, getJavaPkg(schema)) + ".java", buf.Bytes(), nil
+	return withPackageDirByName(fileName, schema, getJavaPkg(schema), false) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) writeMethod(method *core.Method, buf *bytes.Buffer, isImpl bool, async bool) {
