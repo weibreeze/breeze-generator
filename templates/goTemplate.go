@@ -109,7 +109,7 @@ func (gt *GoTemplate) GenerateCode(schema *core.Schema, context *core.Context) (
 			fileName = fileName[index+1:]
 		}
 	}
-	fileName = withPackageDir(fileName, schema, context, false)
+	fileName = withPackageDir(fileName, schema, false)
 	contents[fileName+".go"] = content.Bytes()
 	return contents, nil
 }
@@ -164,10 +164,10 @@ func (gt *GoTemplate) getImportInfoByType(tp *core.Type, importStrArr []string, 
 				}
 			}
 		} else {
-			if strings.Contains(typeString,"."){
-				prefix:=typeString[:strings.Index(typeString,"*")+1]
-				suffix:=typeString[strings.LastIndex(typeString,".")+1:]
-				typeString =  prefix+suffix
+			if strings.Contains(typeString, ".") {
+				prefix := typeString[:strings.Index(typeString, "*")+1]
+				suffix := typeString[strings.LastIndex(typeString, ".")+1:]
+				typeString = prefix + suffix
 			}
 		}
 	}
@@ -175,7 +175,7 @@ func (gt *GoTemplate) getImportInfoByType(tp *core.Type, importStrArr []string, 
 		typeString = typeString[1:]
 	} else if strings.HasPrefix(typeString, "*[]") {
 		typeString = typeString[1:]
-	}else if strings.HasPrefix(typeString, "*map") {
+	} else if strings.HasPrefix(typeString, "*map") {
 		typeString = typeString[1:]
 	}
 	return importStrArr, typeString
@@ -410,8 +410,8 @@ func (gt *GoTemplate) readMap(buf *bytes.Buffer, tp *core.Type, name string, rec
 	if strings.Contains(tpStr, ".") {
 		tps := []string{}
 		importStr0 := gt.getTypeImport(schema, tp, tps, context)
-		importStr0,typeString0:=gt.getImportInfoByType(tp, importStr0,context, schema)
-		tpStr=typeString0
+		importStr0, typeString0 := gt.getImportInfoByType(tp, importStr0, context, schema)
+		tpStr = typeString0
 	}
 	buf.WriteString(blank + name + " " + assign + " make(" + tpStr + ", size)\n")
 	buf.WriteString(blank + "err = breeze.ReadPacked(buf, size, true, func(buf *breeze.Buffer) error {\n")
@@ -430,7 +430,7 @@ func (gt *GoTemplate) readMap(buf *bytes.Buffer, tp *core.Type, name string, rec
 		case core.Array:
 			gt.readArray(buf, tp.ValueType, vname, recursion+1, schema, context)
 		case core.Msg:
-			tpStr:=tpStr[strings.Index(tpStr,"*")+1:]
+			tpStr := tpStr[strings.Index(tpStr, "*")+1:]
 			if isEnum(tp.ValueType, schema, context) {
 				buf.WriteString(blank + "	var enum " + tpStr + "\n")
 				buf.WriteString(blank + "	result, err := enum.ReadEnum(buf, true)\n")
@@ -479,8 +479,8 @@ func (gt *GoTemplate) readArray(buf *bytes.Buffer, tp *core.Type, name string, r
 	if strings.Contains(tpStr, ".") {
 		tps := []string{}
 		importStr0 := gt.getTypeImport(schema, tp, tps, context)
-		importStr0,typeString0:=gt.getImportInfoByType(tp, importStr0,context, schema)
-		tpStr=typeString0
+		importStr0, typeString0 := gt.getImportInfoByType(tp, importStr0, context, schema)
+		tpStr = typeString0
 	}
 	buf.WriteString(blank + name + " " + assign + " make(" + tpStr + ", 0, size)\n")
 	buf.WriteString(blank + "err = breeze.ReadPacked(buf, size, false, func(buf *breeze.Buffer) error {\n")
@@ -496,7 +496,7 @@ func (gt *GoTemplate) readArray(buf *bytes.Buffer, tp *core.Type, name string, r
 		case core.Array:
 			gt.readArray(buf, tp.ValueType, vname, recursion+1, schema, context)
 		case core.Msg:
-			tpStr:=tpStr[strings.Index(tpStr,"*")+1:]
+			tpStr := tpStr[strings.Index(tpStr, "*")+1:]
 			if isEnum(tp.ValueType, schema, context) {
 				buf.WriteString(blank + "	var enum " + tpStr + "\n")
 				buf.WriteString(blank + "	result, err := enum.ReadEnum(buf, true)\n")

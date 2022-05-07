@@ -24,9 +24,13 @@ const (
 //option keys
 const (
 	JavaPackage     = "java_package"
+	GoPackagePrefix = "go_package_prefix"
 	WithPackageDir  = "with_package_dir"
 	Alias           = "alias"
-	GoPackagePrefix = "go_package_prefix"
+	// motan config
+	WithMotanConfig       = "with_motan_config"
+	DefaultConfigIdPrefix = "default_config_id_prefix"
+	ConfigType            = "motan_config_type"
 )
 
 //rpc type
@@ -64,12 +68,14 @@ type CodeTemplate interface {
 
 //Schema describe a breeze message.
 type Schema struct {
-	Name       string // file name
-	Package    string // file package
-	OrgPackage string // schema name package.
-	Options    map[string]string
-	Messages   map[string]*Message
-	Services   map[string]*Service
+	Name        string // file name
+	Package     string // file package
+	OrgPackage  string // schema name package.
+	Options     map[string]string
+	Messages    map[string]*Message
+	Services    map[string]*Service
+	Configs     map[string]*Config
+	MotanConfig *MotanConfig
 }
 
 //Message :breeze message. include enum message
@@ -109,13 +115,19 @@ type Service struct {
 type Method struct {
 	Name   string
 	Params map[int]*Param
-	Return string
+	Return *Type
 }
 
 //Param : method param
 type Param struct {
-	Type string
+	Type *Type
 	Name string
+}
+
+// Config : a group of options
+type Config struct {
+	Name    string
+	Options map[string]string
 }
 
 //Context : generate context
@@ -127,6 +139,21 @@ type Context struct {
 	Schemas   map[string]*Schema
 	Messages  map[string]*Message
 	Options   map[string]string
+}
+
+// MotanConfig contains motan rpc configs of server end and client end.
+// it used to generate rpc config such as xml, yaml etc.
+type MotanConfig struct {
+	Registries          map[string]map[string]string
+	Protocols           map[string]map[string]string
+	BasicServices       map[string]map[string]string
+	BasicReferers       map[string]map[string]string
+	Services            map[string]map[string]string
+	Referers            map[string]map[string]string
+	ServiceImpls        map[string]map[string]string
+	NeedDefaultRegistry bool
+	NeedDefaultProtocol bool
+	NeedDefaultBasic    bool
 }
 
 //GetType : get a Type from type string

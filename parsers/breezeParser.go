@@ -19,6 +19,7 @@ const (
 	Package = "package"
 	Service = "service"
 	Enum    = "enum"
+	Config  = "config"
 )
 
 var (
@@ -45,21 +46,47 @@ func (b *BreezeParser) FileSuffix() string {
 func (b *BreezeParser) ParseSchema(content []byte, context *core.Context) (schema *core.Schema, err error) {
 	buf := bytes.NewBuffer(content)
 	var line string
-	schema = &core.Schema{Options: make(map[string]string), Messages: make(map[string]*core.Message), Services: make(map[string]*core.Service)}
+	schema = &core.Schema{Options: make(map[string]string), Messages: make(map[string]*core.Message), Services: make(map[string]*core.Service), Configs: make(map[string]*core.Config)}
 	for {
 		line, err = readCleanLine(buf)
 		if err != nil && err != io.EOF {
 			return nil, err
 		}
 		if line == "" && err == io.EOF {
+			processConfig(schema)
 			return schema, nil
 		}
 		err = process(line, buf, schema)
 		if err != nil {
 			if err == io.EOF {
-				return schema, nil
+				return nil, errors.New("unexpect end, maybe segment format not correct. segment line:" + line)
 			}
 			return nil, err
+		}
+	}
+}
+
+func processConfig(schema *core.Schema) {
+	if len(schema.Configs) > 0 {
+		if len(schema.Messages) > 0 {
+			for _, message := range schema.Messages {
+				appendOptions(message.Options, schema.Configs)
+			}
+		}
+		if len(schema.Services) > 0 {
+			for _, service := range schema.Services {
+				appendOptions(service.Options, schema.Configs)
+			}
+		}
+	}
+}
+
+func appendOptions(options map[string]string, configs map[string]*core.Config) {
+	if cn := options[Config]; cn != "" {
+		if cfg := configs[cn]; cfg != nil && len(cfg.Options) > 0 {
+			for k, v := range cfg.Options {
+				options[k] = v
+			}
 		}
 	}
 }
@@ -103,6 +130,12 @@ func process(line string, buf *bytes.Buffer, schema *core.Schema) error {
 			return err
 		}
 		schema.Messages[msg.Name] = msg
+	case Config:
+		cfg, err := parseConfig(buf, line)
+		if err != nil {
+			return err
+		}
+		schema.Configs[cfg.Name] = cfg
 	}
 	return nil
 }
@@ -277,6 +310,9 @@ func parseService(buf *bytes.Buffer, firstLine string) (service *core.Service, e
 	if err != nil {
 		return nil, err
 	}
+	if len(service.Methods) == 0 {
+		return nil, errors.New("must has method in service. service:" + name)
+	}
 	service.Name = name
 	service.Options = options
 	return service, nil
@@ -298,11 +334,16 @@ func parseMethod(line string) (method *core.Method, err error) {
 	if paramStr != "" {
 		paramIndex := 0
 		for len(paramStr) > 0 {
-			index, err := getTypeStr(paramStr)
+			var index int
+			index, err = getTypeStr(paramStr)
 			if err != nil {
 				return nil, err
 			}
-			tp := strings.TrimSpace(paramStr[:index])
+			var tp *core.Type
+			tp, err = core.GetType(strings.TrimSpace(paramStr[:index]), UniformPackage != "")
+			if err != nil {
+				return nil, err
+			}
 			paramStr = paramStr[index:]
 			index = strings.Index(paramStr, ",")
 			if index < 0 {
@@ -314,13 +355,40 @@ func parseMethod(line string) (method *core.Method, err error) {
 			paramIndex++
 		}
 	}
-	ret := strings.TrimSpace(line[index2+1:])
+	var ret *core.Type
+	retStr := strings.TrimSpace(line[index2+1:])
+	if retStr != "" {
+		ret, err = core.GetType(retStr, UniformPackage != "")
+		if err != nil {
+			return nil, err
+		}
+	}
 	method = &core.Method{Name: name, Return: ret, Params: params}
 	return method, nil
 }
 
+func parseConfig(buf *bytes.Buffer, firstLine string) (config *core.Config, err error) {
+	config = &core.Config{Options: make(map[string]string)}
+	name, _, err := parseSegment(buf, firstLine, len(Config), func(line string) error {
+		strs := strings.Split(line, "=")
+		if len(strs) != 2 {
+			return errors.New("the line should be 'k=v' format in config, line: " + line)
+		}
+		config.Options[strings.TrimSpace(strs[0])] = strings.TrimSpace(strs[1])
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	config.Name = name
+	return config, nil
+}
+
 func getTag(line string) string {
-	return line[0:strings.Index(line, " ")]
+	if strings.Index(line, " ") > 0 {
+		return line[0:strings.Index(line, " ")]
+	}
+	return ""
 }
 
 func getTypeStr(str string) (index int, err error) {

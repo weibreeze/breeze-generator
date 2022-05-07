@@ -3,6 +3,7 @@ package generator
 import (
 	"errors"
 	"fmt"
+	"github.com/weibreeze/breeze-generator/motan"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 
 //Config is a generate config struct
 type Config struct {
+	WriteFile     bool
 	Parser        string
 	CodeTemplates string
 	WritePath     string
@@ -49,6 +51,7 @@ func GeneratePath(path string, config *Config) ([]string, error) {
 	if config.WritePath == "" {
 		config.WritePath = path
 	}
+	config.WriteFile = true // write to file
 	context, err := initContext(config)
 	if err != nil {
 		return nil, err
@@ -71,6 +74,7 @@ func GeneratePath(path string, config *Config) ([]string, error) {
 
 //Generate generate code from binary content
 func Generate(name string, content []byte, config *Config) error {
+	config.WriteFile = true // write to file
 	context, err := initContext(config)
 	if err != nil {
 		return err
@@ -80,6 +84,21 @@ func Generate(name string, content []byte, config *Config) error {
 		return err
 	}
 	return generateCode(context)
+}
+
+// GeneratByFileContent 接受多个文件的字符内容进行生成代码，生成后的代码也同样使用字符内容来返回
+func GeneratByFileContent(files map[string]string, config *Config) (map[string]string, map[string]string, error) {
+	context, err := initContext(config)
+	if err != nil {
+		return nil, nil, err
+	}
+	for name, content := range files {
+		err = parseSchema(name, []byte(content), context)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return generateCodeFileContent(context)
 }
 
 func parseSchemaWithPath(path string, context *core.Context) error {
@@ -123,34 +142,75 @@ func parseSchema(name string, content []byte, context *core.Context) error {
 	if err != nil {
 		return err
 	}
+	// merge option from context
+	mergeOptions(schema.Options, context.Options)
+
+	// build motan config
+	err = motan.BuildMotanConfig(schema)
+	if err != nil {
+		return err
+	}
+
 	//add schemas and messages to context
 	context.Schemas[schema.Name] = schema
 	for key, value := range schema.Messages {
 		context.Messages[schema.Package+"."+key] = value
-		for opKey, opValue := range schema.Options {
-			if _, ok := value.Options[opKey]; !ok {
-				value.Options[opKey] = opValue
+		mergeOptions(value.Options, schema.Options)
+	}
+	return nil
+}
+
+func mergeOptions(toOption map[string]string, fromOption map[string]string) {
+	for k, v := range fromOption {
+		if toOption[k] == "" {
+			toOption[k] = v
+		}
+	}
+}
+
+func generateCodeFileContent(context *core.Context) (map[string]string, map[string]string, error) {
+	codeFiles := make(map[string]string)
+	configFiles := make(map[string]string)
+	for _, schema := range context.Schemas {
+		// generate code file
+		for _, template := range context.Templates {
+			files, err := template.GenerateCode(schema, context)
+			if err != nil {
+				return nil, nil, err
+			}
+			for name, bytes := range files {
+				codeFiles[name] = string(bytes)
+			}
+		}
+		// generate config file
+		if schema.Options[core.WithMotanConfig] == "true" {
+			files, err := motan.GenerateConfig(schema)
+			if err != nil {
+				return nil, nil, err
+			}
+			for name, bytes := range files {
+				configFiles[name] = string(bytes)
 			}
 		}
 	}
-	return nil
+	return codeFiles, configFiles, nil
 }
 
 func generateCode(context *core.Context) error {
 	oldMask := syscall.Umask(0)
 	defer syscall.Umask(oldMask)
 	for _, schema := range context.Schemas {
+		basePath := context.WritePath
+		if !strings.HasSuffix(basePath, string(os.PathSeparator)) {
+			basePath += string(os.PathSeparator)
+		}
 		for _, template := range context.Templates {
 			files, err := template.GenerateCode(schema, context)
 			if err != nil {
 				fmt.Printf("error: generate code fail, template:%s, err:%s\n", template.Name(), err.Error())
 				continue
 			}
-			path := context.WritePath
-			if path[len(path)-1:] != string(os.PathSeparator) {
-				path += string(os.PathSeparator)
-			}
-			path = path + template.Name() + string(os.PathSeparator)
+			path := basePath + template.Name() + string(os.PathSeparator)
 			err = os.MkdirAll(path, 0777)
 			if err != nil {
 				return err
@@ -166,6 +226,24 @@ func generateCode(context *core.Context) error {
 				err = ioutil.WriteFile(path+name, content, 0666)
 				if err != nil {
 					fmt.Printf("error: write code fail, template:%s, file name:%s, err:%s\n", template.Name(), name, err.Error())
+				}
+			}
+		}
+		// generate motan config
+		if schema.Options[core.WithMotanConfig] == "true" {
+			files, err := motan.GenerateConfig(schema)
+			if err != nil {
+				return err
+			}
+			configPath := basePath + "motanConfig" + string(os.PathSeparator)
+			err = os.MkdirAll(configPath, 0777)
+			if err != nil {
+				return err
+			}
+			for name, content := range files {
+				err = ioutil.WriteFile(configPath+name, content, 0666)
+				if err != nil {
+					fmt.Printf("error: write motan config fail, file name:%s, err:%s\n", name, err.Error())
 				}
 			}
 		}

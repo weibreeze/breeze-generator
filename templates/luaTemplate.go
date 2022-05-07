@@ -190,7 +190,7 @@ end
 
 return _M
 	`)
-	return withPackageDir(strings.ToLower(message.Name), schema, context, true) + ".lua", buf.Bytes(), nil
+	return withPackageDir(strings.ToLower(message.Name), schema, true) + ".lua", buf.Bytes(), nil
 }
 
 func (lt *LuaTemplate) generateEnum(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
@@ -263,7 +263,7 @@ end
 
 return _M
 	`)
-	return withPackageDir(strings.ToLower(message.Name), schema, context, true) + ".lua", buf.Bytes(), nil
+	return withPackageDir(strings.ToLower(message.Name), schema, true) + ".lua", buf.Bytes(), nil
 }
 
 func (lt *LuaTemplate) generateService(schema *core.Schema, service *core.Service, context *core.Context) (file string, content []byte, err error) {

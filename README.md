@@ -32,6 +32,24 @@
 
 具体代码可以参考[main/test.go](https://github.com/weibreeze/breeze-generator/blob/master/main/test.go)
 
+## 做为Breeze生成服务器
+
+可以使用`GenerateCodeHandler`做为http server来为Breeze的[intellij插件](https://github.com/weibreeze/breeze-idea-plugin) 提供生成服务。样例代码如下：
+
+
+```go
+    func main() {
+        port := 8899
+        path := "/generate_code"
+        http.Handle(path, &breezeHttp.GenerateCodeHandler{})
+        http.ListenAndServe(":"+strconv.Itoa(port), nil)
+        select {}
+    }
+```
+
+
+
+
 ## 转换protobuf为breeze
 
 生成器可以转换protobuf的.proto描述文件为breeze的.breeze描述文件。

@@ -62,7 +62,14 @@ func (jt *JavaTemplate) GenerateCode(schema *core.Schema, context *core.Context)
 	}
 	if len(schema.Services) > 0 {
 		for _, service := range schema.Services {
-			file, content, err := jt.generateService(schema, service, context)
+			file, content, err := jt.generateService(schema, service, context, false)
+			if err != nil {
+				return nil, err
+			}
+			if file != "" && content != nil {
+				contents[file] = content
+			}
+			file, content, err = jt.generateService(schema, service, context, true)
 			if err != nil {
 				return nil, err
 			}
@@ -77,10 +84,7 @@ func (jt *JavaTemplate) GenerateCode(schema *core.Schema, context *core.Context)
 func (jt *JavaTemplate) generateEnum(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
 	buf := &bytes.Buffer{}
 	writeGenerateComment(buf, schema.Name)
-	pkg := schema.Options[core.JavaPackage]
-	if pkg == "" {
-		pkg = schema.Package
-	}
+	pkg := getJavaPkg(schema)
 	buf.WriteString("package " + pkg + ";\n\n")
 	//import
 	buf.WriteString("import com.weibo.breeze.*;\nimport com.weibo.breeze.serializer.Serializer;\n\nimport static com.weibo.breeze.type.Types.TYPE_INT32;\n\n")
@@ -110,14 +114,14 @@ func (jt *JavaTemplate) generateEnum(schema *core.Schema, message *core.Message,
 	buf.WriteString("        private static final String[] names = new String[]{\"" + fullName + "\", " + message.Name + ".class.getName()};\n\n")
 
 	//writeTo
-	buf.WriteString("        @Override\n        public void writeToBuf(" + message.Name + " obj, BreezeBuffer buffer) throws BreezeException {\n")
-	buf.WriteString("            BreezeWriter.writeMessage(buffer, () -> {\n                TYPE_INT32.writeMessageField(buffer, 1, obj.number);\n            });\n        }\n\n")
+	buf.WriteString("        @Override\n        public void writeToBuf(" + message.Name + " obj, BreezeBuffer breezeBuffer) throws BreezeException {\n")
+	buf.WriteString("            BreezeWriter.writeMessage(breezeBuffer, () -> {\n                TYPE_INT32.writeMessageField(breezeBuffer, 1, obj.number);\n            });\n        }\n\n")
 
 	//readFrom
-	buf.WriteString("        @Override\n        public " + message.Name + " readFromBuf(BreezeBuffer buffer) throws BreezeException {\n            int[] number = new int[]{-1};\n")
-	buf.WriteString("            BreezeReader.readMessage(buffer, (int index) -> {\n                switch (index) {\n")
-	buf.WriteString("                    case 1:\n                        number[0] = TYPE_INT32.read(buffer);\n                        break;")
-	buf.WriteString("                    default:\n                        BreezeReader.readObject(buffer, Object.class);\n                }\n            });\n")
+	buf.WriteString("        @Override\n        public " + message.Name + " readFromBuf(BreezeBuffer breezeBuffer) throws BreezeException {\n            int[] number = new int[]{-1};\n")
+	buf.WriteString("            BreezeReader.readMessage(breezeBuffer, (int breezeIndex) -> {\n                switch (breezeIndex) {\n")
+	buf.WriteString("                    case 1:\n                        number[0] = TYPE_INT32.read(breezeBuffer);\n                        break;\n")
+	buf.WriteString("                    default:\n                        BreezeReader.readObject(breezeBuffer, Object.class);\n                }\n            });\n")
 	buf.WriteString("            switch (number[0]) {\n")
 	for _, value := range enumValues {
 		buf.WriteString("                case " + strconv.Itoa(value.Index) + ":\n                   return " + value.Name + ";\n")
@@ -126,29 +130,39 @@ func (jt *JavaTemplate) generateEnum(schema *core.Schema, message *core.Message,
 
 	//interface methods
 	buf.WriteString("        @Override\n        public String[] getNames() { return names; }\n    }\n}\n")
-	return withPackageDir(message.Name, schema, context, false) + ".java", buf.Bytes(), nil
+	return withPackageDirByName(message.Name, schema, pkg, false) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
 	buf := &bytes.Buffer{}
 	writeGenerateComment(buf, schema.Name)
-	pkg := schema.Options[core.JavaPackage]
-	if pkg == "" {
-		pkg = schema.Package
-	}
+
+	pkg := getJavaPkg(schema)
 	// fix: none package in breeze, pkg is empty
-	if pkg!=""{
+	if pkg != "" {
 		buf.WriteString("package " + pkg + ";\n\n")
 	}
-	//import
-	buf.WriteString("import com.weibo.breeze.*;\nimport com.weibo.breeze.message.Message;\nimport com.weibo.breeze.message.Schema;\nimport com.weibo.breeze.type.BreezeType;\n\n")
 
 	fields := sortFields(message) //sorted fields
 
+	//import
 	importStr := make([]string, 0, 16)
-	for _, field := range fields {
+	var needBreezeType bool
+	for _, field := range fields { // message class import
 		importStr = jt.getTypeImport(field.Type, context, importStr)
+		if field.Type.Number >= core.Map { // map, array, message
+			needBreezeType = true
+		}
 	}
+
+	//breeze class import section
+	buf.WriteString("import com.weibo.breeze.*;\nimport com.weibo.breeze.message.Message;\nimport com.weibo.breeze.message.Schema;\n")
+	if needBreezeType {
+		buf.WriteString("import com.weibo.breeze.type.BreezeType;\n")
+	}
+	buf.WriteString("\n")
+
+	// message class import section
 	if len(importStr) > 0 {
 		importStr = sortUnique(importStr)
 		for _, t := range importStr {
@@ -156,9 +170,11 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 		}
 		buf.WriteString("\n")
 	}
-	buf.WriteString("import java.lang.reflect.Type;\n")
-	buf.WriteString("import java.util.*;\n\n")
-	buf.WriteString("import static com.weibo.breeze.Breeze.getBreezeType;\n")
+
+	// static import
+	if needBreezeType {
+		buf.WriteString("import static com.weibo.breeze.Breeze.getBreezeType;\n")
+	}
 	buf.WriteString("import static com.weibo.breeze.type.Types.*;\n\n")
 
 	//class body
@@ -188,19 +204,19 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	buf.WriteString("        } catch (BreezeException ignore) {}\n        Breeze.putMessageInstance(breezeSchema.getName(), new " + message.Name + "());\n    }\n\n")
 
 	//writeTo
-	buf.WriteString("    @Override\n    public void writeToBuf(BreezeBuffer buffer) throws BreezeException {\n        BreezeWriter.writeMessage(buffer, () -> {\n")
+	buf.WriteString("    @Override\n    public void writeToBuf(BreezeBuffer breezeBuffer) throws BreezeException {\n        BreezeWriter.writeMessage(breezeBuffer, () -> {\n")
 	for _, field := range fields {
 		if field.Type.Number < core.Map {
 			buf.WriteString("            " + javaTypes[field.Type.Number].breezeType)
 		} else {
 			buf.WriteString("            " + field.Name + "BreezeType")
 		}
-		buf.WriteString(".writeMessageField(buffer, " + strconv.Itoa(field.Index) + ", " + field.Name + ");\n")
+		buf.WriteString(".writeMessageField(breezeBuffer, " + strconv.Itoa(field.Index) + ", " + field.Name + ");\n")
 	}
 	buf.WriteString("        });\n    }\n\n")
 
 	//readFrom
-	buf.WriteString("    @Override\n    public Message readFromBuf(BreezeBuffer buffer) throws BreezeException {\n        BreezeReader.readMessage(buffer, (int index) -> {\n            switch (index) {\n")
+	buf.WriteString("    @Override\n    public Message readFromBuf(BreezeBuffer breezeBuffer) throws BreezeException {\n        BreezeReader.readMessage(breezeBuffer, (int breezeIndex) -> {\n            switch (breezeIndex) {\n")
 	for _, field := range fields {
 		buf.WriteString("                case " + strconv.Itoa(field.Index) + ":\n                    " + field.Name + " = ")
 		if field.Type.Number < core.Map {
@@ -208,9 +224,9 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 		} else {
 			buf.WriteString(field.Name + "BreezeType")
 		}
-		buf.WriteString(".read(buffer);\n                    break;\n")
+		buf.WriteString(".read(breezeBuffer);\n                    break;\n")
 	}
-	buf.WriteString("                default: //skip unknown field\n                    BreezeReader.readObject(buffer, Object.class);\n            }\n        });\n        return this;\n    }\n\n")
+	buf.WriteString("                default: //skip unknown field\n                    BreezeReader.readObject(breezeBuffer, Object.class);\n            }\n        });\n        return this;\n    }\n\n")
 
 	//interface methods
 	buf.WriteString("    @Override\n    public String messageName() { return breezeSchema.getName(); }\n\n")
@@ -226,13 +242,14 @@ func (jt *JavaTemplate) generateMessage(schema *core.Schema, message *core.Messa
 	buf.Truncate(buf.Len() - 1)
 	buf.WriteString("}\n")
 
-	return withPackageDir(message.Name, schema, context, false) + ".java", buf.Bytes(), nil
+	return withPackageDirByName(message.Name, schema, pkg, false) + ".java", buf.Bytes(), nil
 }
 
 func (jt *JavaTemplate) getTypeImport(tp *core.Type, context *core.Context, tps []string) []string {
 	switch tp.Number {
 	case core.Array, core.Map: //only array or map value maybe contains message type
 		tps = jt.getTypeImport(tp.ValueType, context, tps)
+		tps = append(tps, "import java.util.*;\n") // need import collection
 	case core.Msg:
 		index := strings.LastIndex(tp.Name, ".")
 		if index > -1 { //not same package
@@ -267,12 +284,116 @@ func (jt *JavaTemplate) getTypeString(tp *core.Type, wrapper bool) string {
 	return ""
 }
 
-func (jt *JavaTemplate) generateService(schema *core.Schema, service *core.Service, context *core.Context) (file string, content []byte, err error) {
-	//TODO implement
-	return "", nil, nil
+func (jt *JavaTemplate) generateService(schema *core.Schema, service *core.Service, context *core.Context, isImpl bool) (file string, content []byte, err error) {
+	buf := &bytes.Buffer{}
+	writeGenerateComment(buf, schema.Name)
+	pkg := getJavaPkg(schema)
+	buf.WriteString("package " + pkg + ";\n\n")
+	//import
+	importStr := make([]string, 0, 16)
+	importStr = append(importStr, "import com.weibo.api.motan.rpc.ResponseFuture;\n")
+	types := getAllParamType(service)
+	if len(types) > 0 {
+		for _, t := range types {
+			importStr = jt.getTypeImport(t, context, importStr)
+		}
+	}
+	importStr = sortUnique(importStr)
+	for _, t := range importStr {
+		buf.WriteString(t)
+	}
+	buf.WriteString("\n\n")
+
+	//class body
+	if isImpl {
+		buf.WriteString("public class " + service.Name + "Impl implements " + service.Name + " {\n")
+	} else {
+		buf.WriteString("public interface " + service.Name + " {\n")
+	}
+
+	//methods
+	for _, method := range sortMethods(service) {
+		jt.writeMethod(method, buf, isImpl, false)
+	}
+
+	// async methods should not implement by server end, so let it placed after normal methods
+	for _, method := range sortMethods(service) {
+		jt.writeMethod(method, buf, isImpl, true)
+	}
+	buf.Truncate(buf.Len() - 1)
+	buf.WriteString("}\n")
+	fileName := service.Name
+	if isImpl {
+		fileName += "Impl"
+	}
+	return withPackageDirByName(fileName, schema, getJavaPkg(schema), false) + ".java", buf.Bytes(), nil
 }
 
-func (jt *JavaTemplate) generateMotanClient(schema *core.Schema, service *core.Service, context *core.Context) (file string, content []byte, err error) {
-	//TODO implement
-	return "", nil, nil
+func (jt *JavaTemplate) writeMethod(method *core.Method, buf *bytes.Buffer, isImpl bool, async bool) {
+	buf.WriteString("    ")
+	if isImpl {
+		buf.WriteString("@Override\n    public ")
+	}
+
+	if async {
+		buf.WriteString("ResponseFuture")
+	} else {
+		if method.Return != nil {
+			buf.WriteString(jt.getTypeString(method.Return, true))
+		} else {
+			buf.WriteString("void")
+		}
+	}
+	name := method.Name
+	if async {
+		name += "Async"
+	}
+	buf.WriteString(" " + name + "(")
+	if len(method.Params) > 0 {
+		for i := 0; i < len(method.Params); i++ {
+			param := method.Params[i]
+			buf.WriteString(jt.getTypeString(param.Type, false))
+			buf.WriteString(" " + param.Name)
+			buf.WriteString(", ")
+		}
+		buf.Truncate(buf.Len() - 2)
+	}
+	if isImpl {
+		buf.WriteString(") {\n")
+		if async {
+			buf.WriteString("        //This method is only used for client end asynchronous calls, should not implement it in serve end\n")
+			buf.WriteString("        throw new RuntimeException(\"should not implement\");\n")
+		} else {
+			buf.WriteString("        //TODO implement this method\n")
+			if method.Return != nil {
+				buf.WriteString("        return null;\n")
+			}
+		}
+		buf.WriteString("    }\n\n")
+	} else {
+		buf.WriteString(");\n\n")
+	}
+}
+
+func getJavaPkg(schema *core.Schema) string {
+	pkg := schema.Options[core.JavaPackage]
+	if pkg == "" {
+		pkg = schema.Package
+	}
+	return pkg
+}
+
+func getAllParamType(service *core.Service) []*core.Type {
+	types := make([]*core.Type, 0, 16)
+	for _, method := range service.Methods {
+		if method.Return != nil {
+			types = append(types, method.Return)
+		}
+		if len(method.Params) > 0 {
+			for _, param := range method.Params {
+				types = append(types, param.Type)
+			}
+		}
+	}
+	return types
 }

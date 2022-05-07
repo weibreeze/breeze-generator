@@ -79,9 +79,9 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 	buf.WriteString("<?php\n")
 	writeGenerateComment(buf, schema.Name)
 	// fix : none package in breeze
-	ns:= pt.getNamespace(schema.Package)
-	if ns!=""{
-		buf.WriteString("namespace " +ns+ ";\n\n")
+	ns := pt.getNamespace(schema.Package)
+	if ns != "" {
+		buf.WriteString("namespace " + ns + ";\n\n")
 	}
 	buf.WriteString("use Breeze\\Breeze;\nuse Breeze\\BreezeException;\nuse Breeze\\BreezeReader;\nuse Breeze\\BreezeWriter;\nuse Breeze\\Buffer;\nuse Breeze\\FieldDesc;\nuse Breeze\\Message;\nuse Breeze\\Schema;\n")
 
@@ -174,7 +174,7 @@ func (pt *PHPTemplate) generateMessage(schema *core.Schema, message *core.Messag
 
 	//end of class
 	buf.WriteString("}\n")
-	return withPackageDir(message.Name, schema, context, true) + ".php", buf.Bytes(), nil
+	return withPackageDir(message.Name, schema, true) + ".php", buf.Bytes(), nil
 }
 
 func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, context *core.Context) (file string, content []byte, err error) {
@@ -232,7 +232,7 @@ func (pt *PHPTemplate) generateEnum(schema *core.Schema, message *core.Message, 
 
 	//end of class
 	buf.WriteString("}\n")
-	return withPackageDir(message.Name, schema, context, true) + ".php", buf.Bytes(), nil
+	return withPackageDir(message.Name, schema, true) + ".php", buf.Bytes(), nil
 }
 
 func (pt *PHPTemplate) getTypeImport(tp *core.Type, tps []string) []string {
@@ -298,7 +298,7 @@ func (pt *PHPTemplate) generateMotanClient(schema *core.Schema, service *core.Se
 
 func (pt *PHPTemplate) getNamespace(pkg string) string {
 	// fix: none package in breeze
-	if pkg==""{
+	if pkg == "" {
 		return ""
 	}
 	return toCamelCase(pkg, "\\")

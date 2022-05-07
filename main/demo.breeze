@@ -1,0 +1,49 @@
+option java_package = com.weibo.motan.breeze.demo;
+option with_package_dir = true;
+// option default_config_id_prefix = myDemo;
+package demo;
+
+service DemoService(config=TestConfig, unk=xxxt){
+	hello(User user, string words)string;
+	getByName(string name)User;
+	atest();
+}
+
+message User(alias=u){
+	int32 uid = 1;
+	string name = 2;
+	Sex sex = 3;
+}
+
+enum Sex{
+    M = 1;
+    F = 2;
+    U = 3;
+}
+
+// 配置名固定，通用配置，全局生效（如果定义多个config如何处理？文件内大于文件外，文件外有多个时忽略）
+config TestConfig{
+    xxx = jjj;
+    KKK = 123;
+}
+
+// 为了在不同环境中，生成代码的行为相同，motan相关的配置必须在schema中显示指定，不适合通过idea的默认配置来精简
+config MotanBasicConfig{
+    // common config
+    default.registry.address = config.api.weibo.com;
+    default.protocol.name = motan2; //which rpc protocol will be used
+    default.protocol.serialization = breeze;
+
+    // server config
+    default.protocol.maxWorkerThread = 1000;
+    service.group = ${myServerGroup}; //rpc group of server end
+    service.application = ${myServerApplication}; //rpc application of server end
+    service.export = :8002; //:${export port} or ${protocol.id}:${export port}
+
+    // client config
+    default.protocol.loadbalance = configurableWeight;
+    default.protocol.haStrategy = failover;
+    referer.group = ${myClientGroup};
+    referer.application = ${myClientApplication};
+    referer.requestTimeout = 1000; //rpc request time out
+}
